@@ -1,0 +1,7 @@
+{
+  "name": "BITORA - Premium Casino Gaming & Virtual Credit Platform",
+  "description": "BITORA is a luxury black-and-gold gaming website featuring 24x24 Mines, Royal Fortune Wheel, Diamond Vault Puzzle, Chicken Road, Aviator flight simulator, virtual credit cashier, payment demo, and admin suite.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

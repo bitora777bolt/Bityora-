@@ -1,0 +1,201 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --gold-primary: #d4af37;
+    --gold-bright: #f5d061;
+    --gold-dark: #8c7322;
+    --gold-glow: rgba(212, 175, 55, 0.35);
+    --bg-dark: #07090e;
+    --bg-card: #0e121a;
+    --bg-elevated: #151b26;
+  }
+
+  body {
+    background-color: #07090e;
+    color: #e6edf3;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, .font-cinzel {
+    font-family: 'Cinzel', serif;
+    letter-spacing: 0.03em;
+  }
+
+  .font-mono-numbers {
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom Gold Glow & Gradients */
+.gold-text-gradient {
+  background: linear-gradient(135deg, #fff2a3 0%, #d4af37 40%, #aa820a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gold-border-gradient {
+  border-image: linear-gradient(to right, #aa820a, #f5d061, #aa820a) 1;
+}
+
+.gold-box-glow {
+  box-shadow: 0 0 25px rgba(212, 175, 55, 0.18), inset 0 0 15px rgba(212, 175, 55, 0.05);
+}
+
+.gold-btn-glow:hover {
+  box-shadow: 0 0 22px rgba(245, 208, 97, 0.45);
+}
+
+.grid-cols-24 {
+  grid-template-columns: repeat(24, minmax(0, 1fr)) !important;
+}
+
+.subtle-grid {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(212, 175, 55, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(212, 175, 55, 0.04) 1px, transparent 1px);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090c12;
+}
+::-webkit-scrollbar-thumb {
+  background: #242c3d;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #d4af37;
+}
+
+/* Chicken Road Traffic & Animation Styles */
+@keyframes carPassRight {
+  0% {
+    transform: translateX(-140px);
+  }
+  100% {
+    transform: translateX(950px);
+  }
+}
+
+@keyframes carPassLeft {
+  0% {
+    transform: translateX(950px);
+  }
+  100% {
+    transform: translateX(-140px);
+  }
+}
+
+@keyframes chickenWaddle {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg) scale(1);
+  }
+  25% {
+    transform: translateY(-8px) rotate(-4deg) scale(1.08);
+  }
+  50% {
+    transform: translateY(-14px) rotate(0deg) scale(1.12);
+  }
+  75% {
+    transform: translateY(-6px) rotate(4deg) scale(1.04);
+  }
+}
+
+@keyframes chickenPanic {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+  }
+  20% {
+    transform: scale(1.25) rotate(-15deg);
+  }
+  40% {
+    transform: scale(0.9) rotate(20deg);
+  }
+  60% {
+    transform: scale(1.3) rotate(-10deg);
+  }
+  80% {
+    transform: scale(0.85) rotate(15deg);
+  }
+}
+
+@keyframes roadDashScroll {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 40px 0;
+  }
+}
+
+.animate-car-right-fast {
+  animation: carPassRight 2.2s linear infinite;
+}
+
+.animate-car-right-normal {
+  animation: carPassRight 3.4s linear infinite;
+}
+
+.animate-car-right-slow {
+  animation: carPassRight 4.8s linear infinite;
+}
+
+.animate-car-left-fast {
+  animation: carPassLeft 2.4s linear infinite;
+}
+
+.animate-car-left-normal {
+  animation: carPassLeft 3.6s linear infinite;
+}
+
+.animate-car-left-slow {
+  animation: carPassLeft 5.0s linear infinite;
+}
+
+.animate-chicken-waddle {
+  animation: chickenWaddle 0.5s ease-in-out infinite;
+}
+
+.animate-chicken-panic {
+  animation: chickenPanic 0.4s ease-in-out infinite;
+}
+
+.road-asphalt-pattern {
+  background-color: #11141c;
+  background-image: 
+    radial-gradient(#1a202c 15%, transparent 16%),
+    radial-gradient(#1f2636 15%, transparent 16%);
+  background-size: 8px 8px;
+  background-position: 0 0, 4px 4px;
+}
+
+@keyframes floatCoin {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translateY(-24px) rotate(12deg) scale(1.06);
+  }
+}
+
+.animate-float {
+  animation: floatCoin 9s ease-in-out infinite;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+
