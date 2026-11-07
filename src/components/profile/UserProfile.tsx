@@ -35,6 +35,7 @@ export const UserProfile: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'transactions' | 'games' | 'settings'>('games');
   const [copied, setCopied] = useState<boolean>(false);
+  const [copiedGameId, setCopiedGameId] = useState<boolean>(false);
   const [newUsername, setNewUsername] = useState<string>(currentUser?.username || '');
   const [editSuccess, setEditSuccess] = useState<boolean>(false);
 
@@ -50,6 +51,12 @@ export const UserProfile: React.FC = () => {
     navigator.clipboard.writeText(currentUser.id).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyGameId = () => {
+    navigator.clipboard.writeText(currentUser.gameAccountId).catch(() => {});
+    setCopiedGameId(true);
+    setTimeout(() => setCopiedGameId(false), 2000);
   };
 
   const handleSaveProfile = (e: React.FormEvent) => {
@@ -87,7 +94,7 @@ export const UserProfile: React.FC = () => {
             </div>
 
             <div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2.5 flex-wrap">
                 <h1 className="font-cinzel text-xl sm:text-2xl font-black text-white">
                   {currentUser.username}
                 </h1>
@@ -96,26 +103,54 @@ export const UserProfile: React.FC = () => {
                     OFFICER
                   </span>
                 )}
-                {currentUser.isSuspended && (
-                  <span className="px-2 py-0.5 rounded bg-red-500/20 border border-red-500/40 text-red-300 text-[10px] font-bold">
-                    SUSPENDED
+                {currentUser.accountStatus === 'BLOCKED' ? (
+                  <span className="px-2 py-0.5 rounded bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-bold">
+                    🚫 BLOCKED
+                  </span>
+                ) : currentUser.accountStatus === 'FROZEN' ? (
+                  <span className="px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[10px] font-bold">
+                    ❄ FROZEN
+                  </span>
+                ) : currentUser.accountStatus === 'SUSPENDED' || currentUser.isSuspended ? (
+                  <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold">
+                    ⏳ SUSPENDED
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
+                    ✓ ACTIVE
                   </span>
                 )}
               </div>
 
-              {/* Unique User ID with 1-click copy */}
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-xs text-gray-400">Account ID:</span>
-                <span className="font-mono-numbers text-xs font-bold text-[#f5d061] bg-[#121622] px-2 py-0.5 rounded border border-[#242c3d]">
-                  {currentUser.id}
-                </span>
-                <button
-                  onClick={handleCopyId}
-                  className="p-1 text-gray-400 hover:text-white transition-colors"
-                  title="Copy User ID"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
+              {/* Unique User ID & Connected Game Account with 1-click copy */}
+              <div className="flex flex-wrap items-center gap-3 mt-1.5">
+                <div className="flex items-center gap-1.5 bg-[#121622] px-2.5 py-1 rounded-lg border border-[#242c3d]">
+                  <span className="text-[11px] text-gray-400">User ID:</span>
+                  <span className="font-mono-numbers text-xs font-bold text-[#f5d061]">
+                    {currentUser.id}
+                  </span>
+                  <button
+                    onClick={handleCopyId}
+                    className="p-0.5 text-gray-400 hover:text-white transition-colors cursor-pointer"
+                    title="Copy Unique User ID"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-[#121622] px-2.5 py-1 rounded-lg border border-[#242c3d]">
+                  <span className="text-[11px] text-gray-400">Connected Game Account:</span>
+                  <span className="font-mono-numbers text-xs font-bold text-cyan-300">
+                    {currentUser.gameAccountId || `BTY-GAME-${currentUser.id.replace(/[^a-zA-Z0-9]/g, '')}`}
+                  </span>
+                  <button
+                    onClick={handleCopyGameId}
+                    className="p-0.5 text-gray-400 hover:text-white transition-colors cursor-pointer"
+                    title="Copy Connected Game Account ID"
+                  >
+                    {copiedGameId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400 mt-2 font-mono-numbers">

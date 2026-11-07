@@ -1,17 +1,26 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
   User,
+  UserAccountStatus,
+  RiskLevel,
+  GameSessionStatus,
   Transaction,
   GameRecord,
   DepositRequest,
   AdminAuditLog,
   GameType,
   PendingDeposit,
+  DailyCheckInState,
 } from '../types';
 import { sounds } from '../utils/soundEffects';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
+import {
+  getDailyCheckInState,
+  claimDailyCheckInReward,
+  getTodayDateKey,
+} from '../utils/dailyCheckIn';
 
 interface GameContextType {
   currentUser: User | null;
@@ -53,10 +62,25 @@ interface GameContextType {
   depositClearanceNotification: string | null;
   dismissDepositClearanceNotification: () => void;
   adminFastForwardDeposit: (depositId: string) => void;
-  // Admin Actions
+  // Admin Actions & Sovereign Authority
   adminGrantCredits: (targetUserId: string, amount: number, reason: string) => { success: boolean; message: string };
   adminDeductCredits: (targetUserId: string, amount: number, reason: string) => { success: boolean; message: string };
   adminToggleSuspension: (targetUserId: string, reason: string) => void;
+  adminSetAccountStatus: (
+    targetUserId: string,
+    newStatus: UserAccountStatus,
+    reason: string,
+    policyViolationType?: string,
+    suspensionHours?: number
+  ) => { success: boolean; message: string };
+  adminFlagIllicitBehavior: (
+    targetUserId: string,
+    flag: string,
+    reason: string
+  ) => { success: boolean; message: string };
+  canUserPlay: (user?: User | null) => { allowed: boolean; reason?: string; status: UserAccountStatus };
+  canUserTransact: (user?: User | null) => { allowed: boolean; reason?: string; status: UserAccountStatus };
+  trackUserGameSession: (userId: string, gameName: string, status: GameSessionStatus) => void;
   // Deposit Request Demo
   submitDepositRequest: (amount: number, referenceNo: string, qrUrl: string) => DepositRequest;
   adminProcessDepositRequest: (requestId: string, action: 'APPROVE' | 'REJECT', reason?: string) => void;
@@ -83,6 +107,12 @@ interface GameContextType {
   dismissPhoneBonusNotification: () => void;
   hasClaimedPhoneBonus: boolean;
   loginWithFirebasePhone: (phoneNumber: string, firebaseUid: string) => Promise<{ isNewBonus: boolean; bonusAmount: number; user: User }>;
+  // 7-Day Cyclical Daily Check-In Rewards
+  dailyCheckInState: DailyCheckInState;
+  claimDailyCheckIn: () => { success: boolean; amount: number; day: number; message: string };
+  isCheckInModalOpen: boolean;
+  setIsCheckInModalOpen: (open: boolean) => void;
+  openDailyCheckIn: () => void;
 }
 
 const MAX_BALANCE = Infinity; // No limits! Unlimited balance growth
@@ -91,25 +121,40 @@ const MIN_TOPUP = 20;
 const DEFAULT_USERS: User[] = [
   {
     id: 'BIT-782914',
+    gameAccountId: 'BTY-GAME-782914',
     username: 'Aarav Royal',
     email: 'aarav.vip@bitora.demo',
     phone: '+91 98765 43210',
     role: 'player',
     balance: 100, // Fixed initial welcome bonus credits
+    accountStatus: 'ACTIVE',
+    riskLevel: 'LOW',
+    violationCount: 0,
+    illicitActivityFlags: [],
+    gameSessionStatus: 'ONLINE',
+    currentGame: 'Mines 24x24',
+    lastActivity: 'Active on Mines 24x24',
     isSuspended: false,
     vipTier: 'Gold',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     createdAt: '2026-09-12',
-    totalWagered: 0,
-    totalWon: 0,
+    totalWagered: 1250,
+    totalWon: 1680,
   },
   {
     id: 'ADM-BITORA-01',
+    gameAccountId: 'BTY-GAME-ADM01',
     username: 'Chief Supervisor (Admin)',
     email: 'admin@bitora.casino',
     phone: '+91 99999 00001',
     role: 'admin',
     balance: 5000,
+    accountStatus: 'ACTIVE',
+    riskLevel: 'LOW',
+    violationCount: 0,
+    illicitActivityFlags: [],
+    gameSessionStatus: 'ONLINE',
+    lastActivity: 'Monitoring Admin Command Suite',
     isSuspended: false,
     vipTier: 'Diamond VIP',
     avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
@@ -119,11 +164,19 @@ const DEFAULT_USERS: User[] = [
   },
   {
     id: 'BIT-990142',
+    gameAccountId: 'BTY-GAME-990142',
     username: 'Priya Mehta',
     email: 'priya.m@bitora.demo',
     phone: '+91 98221 11234',
     role: 'player',
     balance: 1150,
+    accountStatus: 'ACTIVE',
+    riskLevel: 'LOW',
+    violationCount: 0,
+    illicitActivityFlags: [],
+    gameSessionStatus: 'IN_GAME',
+    currentGame: 'Fortune Tiger',
+    lastActivity: '5 mins ago',
     isSuspended: false,
     vipTier: 'Silver',
     avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
@@ -133,17 +186,74 @@ const DEFAULT_USERS: User[] = [
   },
   {
     id: 'BIT-551029',
+    gameAccountId: 'BTY-GAME-551029',
     username: 'Rohan Verma',
     email: 'rohan.v@bitora.demo',
     phone: '+91 94002 99881',
     role: 'player',
     balance: 400,
+    accountStatus: 'SUSPENDED',
+    statusReason: 'Policy violation: Automated betting script detected (>15 rounds/min)',
+    statusUpdatedAt: '2026-10-25 11:20:00',
+    suspensionExpiresAt: '2026-11-25 11:20:00',
+    riskLevel: 'HIGH',
+    violationCount: 2,
+    illicitActivityFlags: ['Rapid betting velocity (>15 bets/min)', 'Multi-tab concurrent play'],
+    gameSessionStatus: 'OFFLINE',
+    lastActivity: '12 days ago',
     isSuspended: true, // Example suspended user for admin testing
     vipTier: 'Bronze',
     avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
     createdAt: '2026-10-15',
     totalWagered: 450,
     totalWon: 200,
+  },
+  {
+    id: 'BIT-238491',
+    gameAccountId: 'BTY-GAME-238491',
+    username: 'Vikram Patel',
+    email: 'vikram.p@bitora.demo',
+    phone: '+91 97110 55432',
+    role: 'player',
+    balance: 620,
+    accountStatus: 'FROZEN',
+    statusReason: 'Security Hold: Multiplier anomaly trigger and chargeback dispute',
+    statusUpdatedAt: '2026-11-01 14:10:00',
+    riskLevel: 'CRITICAL',
+    violationCount: 3,
+    illicitActivityFlags: ['Multiplier anomaly trigger', 'Chargeback risk detected', 'Arbitrage withdrawal pattern'],
+    gameSessionStatus: 'IDLE',
+    currentGame: 'Aviator/Crash',
+    lastActivity: '35 mins ago',
+    isSuspended: true,
+    vipTier: 'Silver',
+    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80',
+    createdAt: '2026-10-20',
+    totalWagered: 1800,
+    totalWon: 2420,
+  },
+  {
+    id: 'BIT-661902',
+    gameAccountId: 'BTY-GAME-661902',
+    username: 'Karan Malhotra',
+    email: 'karan.m@bitora.demo',
+    phone: '+91 96660 12890',
+    role: 'player',
+    balance: 0,
+    accountStatus: 'BLOCKED',
+    statusReason: 'Permanent Termination: Exploit attempt on European Roulette state and illicit behavior',
+    statusUpdatedAt: '2026-11-04 16:45:00',
+    riskLevel: 'CRITICAL',
+    violationCount: 5,
+    illicitActivityFlags: ['State tampering attempt', 'Client exploit injection', 'Terms of Service Section 8 violation'],
+    gameSessionStatus: 'OFFLINE',
+    lastActivity: 'Permanently Banned',
+    isSuspended: true,
+    vipTier: 'Bronze',
+    avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80',
+    createdAt: '2026-10-18',
+    totalWagered: 3200,
+    totalWon: 4100,
   },
 ];
 
@@ -560,14 +670,23 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const registerUser = (username: string, email: string, phone: string): User => {
-    const newId = `BIT-${Math.floor(100000 + Math.random() * 900000)}`;
+    const serial = Math.floor(100000 + Math.random() * 900000);
+    const newId = `BIT-${serial}`;
+    const newGameAccountId = `BTY-GAME-${serial}`;
     const newUser: User = {
       id: newId,
+      gameAccountId: newGameAccountId,
       username,
       email,
       phone: phone || '+91 98000 00000',
       role: 'player',
       balance: 100, // Fixed initial welcome bonus of exactly 100 credits
+      accountStatus: 'ACTIVE',
+      riskLevel: 'LOW',
+      violationCount: 0,
+      illicitActivityFlags: [],
+      gameSessionStatus: 'ONLINE',
+      lastActivity: 'Just registered',
       isSuspended: false,
       vipTier: 'Bronze',
       avatar: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
@@ -662,15 +781,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let activeUser: User;
 
     if (!target) {
-      const newId = firebaseUser.uid;
+      const serial = Math.floor(100000 + Math.random() * 900000);
+      const newId = `BIT-${serial}`;
+      const newGameAccountId = `BTY-GAME-${serial}`;
       // Guarantee exactly 100 credits welcome bonus for new verified Google user
       const initialBalance = bonusAmount;
       const newUser: User = {
         id: newId,
+        gameAccountId: newGameAccountId,
         username: firebaseUser.displayName || userEmail.split('@')[0] || 'VIP Player',
         email: userEmail,
         role: 'player',
         balance: initialBalance,
+        accountStatus: 'ACTIVE',
+        riskLevel: 'LOW',
+        violationCount: 0,
+        illicitActivityFlags: [],
+        gameSessionStatus: 'ONLINE',
+        lastActivity: 'Signed in via Google',
         isSuspended: false,
         vipTier: 'Gold',
         avatar:
@@ -814,16 +942,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let activeUser: User;
 
     if (!target) {
-      const newId = `TEL-${cleanSuffix}`;
+      const newId = `BIT-${cleanSuffix}`;
+      const newGameAccountId = `BTY-GAME-${cleanSuffix}`;
       // Fixed welcome bonus of exactly 110 credits with zero unverified initial credits
       const initialBalance = alreadyClaimed ? 0 : bonusAmount;
       const newUser: User = {
         id: newId,
+        gameAccountId: newGameAccountId,
         username: `Player ${cleanDigits.slice(-4) || 'VIP'}`,
         email: `${newId.toLowerCase()}@phone.bitora`,
         phone: phoneNumber,
         role: 'player',
         balance: initialBalance,
+        accountStatus: 'ACTIVE',
+        riskLevel: 'LOW',
+        violationCount: 0,
+        illicitActivityFlags: [],
+        gameSessionStatus: 'ONLINE',
+        lastActivity: 'Active on platform',
         isSuspended: false,
         vipTier: 'Gold',
         avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -918,6 +1054,100 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     return { isNewBonus, bonusAmount, user: activeUser };
+  };
+
+  // 7-Day Cyclical Progressive Daily Check-In System
+  const [isCheckInModalOpen, setIsCheckInModalOpen] = useState<boolean>(false);
+  const [dailyCheckInState, setDailyCheckInState] = useState<DailyCheckInState>(() => {
+    return getDailyCheckInState(currentUserId);
+  });
+
+  const openDailyCheckIn = () => {
+    setDailyCheckInState(getDailyCheckInState(currentUserId));
+    setIsCheckInModalOpen(true);
+  };
+
+  // Re-synchronize check-in state whenever active user changes
+  useEffect(() => {
+    if (currentUserId) {
+      setDailyCheckInState(getDailyCheckInState(currentUserId));
+    }
+  }, [currentUserId]);
+
+  // Automatic trigger upon initial daily login (restricted to once per user per day)
+  useEffect(() => {
+    if (currentUser && currentUser.role === 'player') {
+      const today = getTodayDateKey();
+      const state = getDailyCheckInState(currentUser.id);
+      const autoShownSessionKey = `bitora_checkin_autoshow_${currentUser.id}_${today}`;
+
+      // Automatically trigger modal if reward for today has not been claimed yet
+      if (!state.hasClaimedToday && sessionStorage.getItem(autoShownSessionKey) !== 'true') {
+        sessionStorage.setItem(autoShownSessionKey, 'true');
+        const timer = setTimeout(() => {
+          setIsCheckInModalOpen(true);
+        }, 900);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [currentUser?.id]);
+
+  const claimDailyCheckIn = (): { success: boolean; amount: number; day: number; message: string } => {
+    if (!currentUser) {
+      return { success: false, amount: 0, day: 1, message: 'Please sign in to claim your daily VIP reward.' };
+    }
+
+    const res = claimDailyCheckInReward(currentUser.id);
+    if (!res.success) {
+      return { success: false, amount: 0, day: res.state.currentDay, message: res.message };
+    }
+
+    // Add credits directly to unified wallet balance
+    const rewardCredits = res.reward.credits;
+    const newBalance = currentUser.balance + rewardCredits;
+    const exactTime = formatExactTimestamp();
+
+    setUsers(prev => prev.map(u => (u.id === currentUser.id ? { ...u, balance: newBalance } : u)));
+
+    // Record verified transaction in statement
+    const checkinTxn: Transaction = {
+      id: `DC-${Date.now().toString().slice(-6)}`,
+      userId: currentUser.id,
+      type: 'TOP_UP',
+      amount: rewardCredits,
+      balanceAfter: newBalance,
+      status: 'COMPLETED',
+      timestamp: exactTime,
+      note: `🎉 Day ${res.reward.day} Daily Check-In Bonus (+${rewardCredits} Credits)${res.reward.isPeak ? ' - Cycle Peak 👑' : ''}`,
+    };
+    setTransactions(prev => [checkinTxn, ...prev]);
+
+    // Update check-in state
+    setDailyCheckInState(res.state);
+    sounds.cashOutWin();
+
+    // Persist to Firestore if authenticated with Firebase
+    try {
+      if (db && auth.currentUser && auth.currentUser.uid === currentUser.id) {
+        setDoc(
+          doc(db, 'users', currentUser.id),
+          {
+            balance: newBalance,
+            lastDailyCheckIn: exactTime,
+            dailyCheckInDay: res.reward.day,
+            dailyCheckInStreak: res.state.streak,
+          },
+          { merge: true }
+        ).catch(() => {});
+      }
+    } catch {}
+
+    return {
+      success: true,
+      amount: rewardCredits,
+      day: res.reward.day,
+      message: res.message,
+    };
   };
 
   // Virtual Credit Top-up / Deposit (No upper limit! Uncapped growth)
@@ -1123,6 +1353,57 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     sounds.cashOutWin();
   };
 
+  // Authority Enforcement & Security Checks
+  const canUserPlay = (
+    user?: User | null
+  ): { allowed: boolean; reason?: string; status: UserAccountStatus } => {
+    const u = user || currentUser;
+    if (!u) {
+      return { allowed: false, reason: 'Please sign in with a verified account to play.', status: 'ACTIVE' };
+    }
+    if (u.accountStatus === 'BLOCKED') {
+      return {
+        allowed: false,
+        reason:
+          u.statusReason ||
+          'Account PERMANENTLY BLOCKED by administrator for illicit behavior or terms of service violations.',
+        status: 'BLOCKED',
+      };
+    }
+    if (u.accountStatus === 'SUSPENDED') {
+      return {
+        allowed: false,
+        reason:
+          u.statusReason ||
+          'Account is temporarily SUSPENDED by platform supervisor. Access restricted pending review.',
+        status: 'SUSPENDED',
+      };
+    }
+    if (u.accountStatus === 'FROZEN') {
+      return {
+        allowed: false,
+        reason:
+          u.statusReason ||
+          'Security Freeze: In-game actions and betting privileges are frozen by administration.',
+        status: 'FROZEN',
+      };
+    }
+    if (u.isSuspended) {
+      return {
+        allowed: false,
+        reason: 'Account is suspended by administrator.',
+        status: 'SUSPENDED',
+      };
+    }
+    return { allowed: true, status: 'ACTIVE' };
+  };
+
+  const canUserTransact = (
+    user?: User | null
+  ): { allowed: boolean; reason?: string; status: UserAccountStatus } => {
+    return canUserPlay(user);
+  };
+
   // Record a simulated game round (Unified Winnings Balance - NO LIMITS)
   const recordGameRound = (
     game: GameType,
@@ -1133,7 +1414,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     details?: string
   ): boolean => {
     if (!currentUser) return false;
-    if (currentUser.isSuspended) return false;
+    const playCheck = canUserPlay(currentUser);
+    if (!playCheck.allowed) return false;
     if (currentUser.balance < wager) return false;
 
     // First-Time Visitor Guarantee: First game round guarantees at least ₹100 net profit!
@@ -1167,7 +1449,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const outcome = finalProfit >= 0 ? 'WIN' : 'LOSS';
     const exactTime = formatExactTimestamp();
 
-    // Update user stats & unified balance directly
+    // Determine risk/anomaly flag for admin in-game activity monitor
+    let riskFlag: string | undefined;
+    if (finalMultiplier >= 20) {
+      riskFlag = 'Multiplier Surge (≥20x)';
+    } else if (wager >= 1000) {
+      riskFlag = 'High Wager Spike (≥₹1,000)';
+    } else if (finalProfit >= 2000) {
+      riskFlag = 'High Profit Spike (≥₹2,000)';
+    }
+
+    // Update user stats, unified balance, and live in-game status
     setUsers(prev =>
       prev.map(u => {
         if (u.id === currentUser.id) {
@@ -1176,16 +1468,21 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             balance: newBalance,
             totalWagered: u.totalWagered + wager,
             totalWon: u.totalWon + (finalPayout > 0 ? finalPayout : 0),
+            currentGame: gameName,
+            gameSessionStatus: 'IN_GAME',
+            lastActivity: `Played ${gameName} (${outcome === 'WIN' ? `+₹${finalProfit}` : `-₹${wager}`})`,
           };
         }
         return u;
       })
     );
 
-    // Record game round
+    // Record game round with connected game account linkage
     const gameRecord: GameRecord = {
       id: `GME-${Date.now().toString().slice(-6)}`,
       userId: currentUser.id,
+      gameAccountId: currentUser.gameAccountId || `BTY-GAME-${currentUser.id.replace(/[^a-zA-Z0-9]/g, '')}`,
+      username: currentUser.username,
       game,
       gameName,
       wager,
@@ -1194,6 +1491,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       profit: Number(finalProfit.toFixed(2)),
       outcome,
       timestamp: exactTime,
+      riskFlag,
       details: isWelcomeBonusAwarded
         ? `${details ? details + ' | ' : ''}🎉 FIRST VISIT BONUS: +₹100 GUARANTEED PROFIT`
         : details,
@@ -1307,7 +1605,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!target) return;
 
     const newSuspendedState = !target.isSuspended;
-    setUsers(prev => prev.map(u => u.id === targetUserId ? { ...u, isSuspended: newSuspendedState } : u));
+    const newStatus: UserAccountStatus = newSuspendedState ? 'SUSPENDED' : 'ACTIVE';
+    setUsers(prev =>
+      prev.map(u =>
+        u.id === targetUserId
+          ? {
+              ...u,
+              isSuspended: newSuspendedState,
+              accountStatus: newStatus,
+              statusReason: reason || (newSuspendedState ? 'Account suspended by supervisor' : undefined),
+              statusUpdatedAt: new Date().toLocaleString(),
+            }
+          : u
+      )
+    );
 
     const audit: AdminAuditLog = {
       id: `AUD-${Date.now().toString().slice(-6)}`,
@@ -1320,6 +1631,168 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     setAuditLogs(prev => [audit, ...prev]);
     sounds.chipClick();
+  };
+
+  // Full Administrative Sovereign Authority: Track, Freeze, Suspend, or Permanently Block
+  const adminSetAccountStatus = (
+    targetUserId: string,
+    newStatus: UserAccountStatus,
+    reason: string,
+    policyViolationType?: string,
+    suspensionHours?: number
+  ): { success: boolean; message: string } => {
+    const target = users.find(u => u.id === targetUserId);
+    if (!target) return { success: false, message: 'Target user ID not found.' };
+
+    const isSuspended = newStatus !== 'ACTIVE';
+    const statusUpdatedAt = new Date().toLocaleString();
+    const suspensionExpiresAt =
+      suspensionHours && newStatus === 'SUSPENDED'
+        ? new Date(Date.now() + suspensionHours * 3600 * 1000).toLocaleString()
+        : undefined;
+
+    setUsers(prev =>
+      prev.map(u => {
+        if (u.id === targetUserId) {
+          const newViolationCount =
+            newStatus === 'BLOCKED' || newStatus === 'FROZEN'
+              ? u.violationCount + 1
+              : u.violationCount;
+          const newRiskLevel: RiskLevel =
+            newStatus === 'BLOCKED'
+              ? 'CRITICAL'
+              : newStatus === 'FROZEN'
+              ? 'HIGH'
+              : newStatus === 'SUSPENDED'
+              ? 'MEDIUM'
+              : u.riskLevel;
+
+          return {
+            ...u,
+            accountStatus: newStatus,
+            isSuspended,
+            statusReason: reason,
+            statusUpdatedAt,
+            suspensionExpiresAt,
+            violationCount: newViolationCount,
+            riskLevel: newRiskLevel,
+            lastActivity: `Admin updated status to ${newStatus}`,
+          };
+        }
+        return u;
+      })
+    );
+
+    // Map audit action
+    let auditAction: AdminAuditLog['action'] = 'SUSPEND_ACCOUNT';
+    if (newStatus === 'ACTIVE') {
+      auditAction = target.accountStatus === 'FROZEN' ? 'UNFREEZE_ACCOUNT' : 'UNSUSPEND_ACCOUNT';
+    } else if (newStatus === 'FROZEN') {
+      auditAction = 'FREEZE_ACCOUNT';
+    } else if (newStatus === 'BLOCKED') {
+      auditAction = 'BLOCK_ACCOUNT';
+    } else if (newStatus === 'SUSPENDED') {
+      auditAction = 'SUSPEND_ACCOUNT';
+    }
+
+    const audit: AdminAuditLog = {
+      id: `AUD-${Date.now().toString().slice(-6)}`,
+      adminId: currentUser?.id || 'ADM-BITORA-01',
+      targetUserId,
+      targetUsername: target.username,
+      action: auditAction,
+      reason: reason || `Account transitioned to ${newStatus} by administrator`,
+      policyViolationType: policyViolationType || (newStatus === 'ACTIVE' ? undefined : 'Compliance Action'),
+      timestamp: statusUpdatedAt,
+    };
+    setAuditLogs(prev => [audit, ...prev]);
+
+    // Firestore sync if connected
+    try {
+      if (db) {
+        setDoc(
+          doc(db, 'users', targetUserId),
+          {
+            accountStatus: newStatus,
+            isSuspended,
+            statusReason: reason,
+            statusUpdatedAt,
+            suspensionExpiresAt,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        ).catch(() => {});
+      }
+    } catch {}
+
+    sounds.chipClick();
+    return {
+      success: true,
+      message: `User ${target.username} (${target.id}) status successfully updated to ${newStatus}.`,
+    };
+  };
+
+  // Admin Flag Illicit Behavior
+  const adminFlagIllicitBehavior = (
+    targetUserId: string,
+    flag: string,
+    reason: string
+  ): { success: boolean; message: string } => {
+    const target = users.find(u => u.id === targetUserId);
+    if (!target) return { success: false, message: 'Target user not found.' };
+
+    const updatedFlags = Array.from(new Set([...(target.illicitActivityFlags || []), flag]));
+    const newViolationCount = target.violationCount + 1;
+    const newRiskLevel: RiskLevel =
+      newViolationCount >= 3 ? 'CRITICAL' : newViolationCount >= 2 ? 'HIGH' : 'MEDIUM';
+
+    setUsers(prev =>
+      prev.map(u => {
+        if (u.id === targetUserId) {
+          return {
+            ...u,
+            illicitActivityFlags: updatedFlags,
+            violationCount: newViolationCount,
+            riskLevel: newRiskLevel,
+          };
+        }
+        return u;
+      })
+    );
+
+    const audit: AdminAuditLog = {
+      id: `AUD-${Date.now().toString().slice(-6)}`,
+      adminId: currentUser?.id || 'ADM-BITORA-01',
+      targetUserId,
+      targetUsername: target.username,
+      action: 'FLAG_VIOLATION',
+      reason: `${flag}: ${reason}`,
+      policyViolationType: flag,
+      timestamp: new Date().toLocaleString(),
+    };
+    setAuditLogs(prev => [audit, ...prev]);
+
+    return {
+      success: true,
+      message: `Flagged policy violation "${flag}" on User ${target.id}. Risk level updated to ${newRiskLevel}.`,
+    };
+  };
+
+  // Track User Live Game Session
+  const trackUserGameSession = (userId: string, gameName: string, status: GameSessionStatus) => {
+    setUsers(prev =>
+      prev.map(u => {
+        if (u.id === userId) {
+          return {
+            ...u,
+            currentGame: gameName,
+            gameSessionStatus: status,
+            lastActivity: status === 'IN_GAME' ? `Playing ${gameName}` : 'Active on platform',
+          };
+        }
+        return u;
+      })
+    );
   };
 
   // Submit Deposit Request Demo
@@ -1470,6 +1943,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         adminGrantCredits,
         adminDeductCredits,
         adminToggleSuspension,
+        adminSetAccountStatus,
+        adminFlagIllicitBehavior,
+        canUserPlay,
+        canUserTransact,
+        trackUserGameSession,
         submitDepositRequest,
         adminProcessDepositRequest,
         ownerPaymentQr,
@@ -1489,6 +1967,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         creditWalletFromRazorpay,
         razorpaySuccessNotification,
         dismissRazorpayNotification,
+        // Daily Check-In System
+        dailyCheckInState,
+        claimDailyCheckIn,
+        isCheckInModalOpen,
+        setIsCheckInModalOpen,
+        openDailyCheckIn,
       }}
     >
       {children}

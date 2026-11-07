@@ -20,6 +20,8 @@ import {
   Ticket,
   Lock,
   UserPlus,
+  Gift,
+  Flame,
 } from 'lucide-react';
 import { AccountStatementModal } from '../wallet/AccountStatementModal';
 import { AuthLoginModal } from '../auth/AuthLoginModal';
@@ -37,7 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   openCashier,
   openExportModal,
 }) => {
-  const { currentUser, users, loginAs, logout, soundEnabled, toggleSound, totalWinnings, winningsBalance } = useGame();
+  const { currentUser, users, loginAs, logout, soundEnabled, toggleSound, totalWinnings, winningsBalance, dailyCheckInState, openDailyCheckIn } = useGame();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [statementModalOpen, setStatementModalOpen] = useState(false);
@@ -264,6 +266,25 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
 
+            {/* 7-Day Daily Check-In Rewards Button */}
+            {currentUser && (
+              <button
+                type="button"
+                onClick={openDailyCheckIn}
+                className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-[#f5d061]/20 to-amber-500/15 border border-[#d4af37]/50 hover:border-[#f5d061] text-[#f5d061] text-xs font-black shadow-md cursor-pointer transition-all hover:scale-105 active:scale-95 shrink-0"
+                title="7-Day Cyclical Daily Check-In Rewards"
+              >
+                <Gift className="w-3.5 h-3.5 text-[#f5d061]" />
+                <span className="hidden sm:inline">Day {dailyCheckInState.currentDay}</span>
+                {!dailyCheckInState.hasClaimedToday && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping absolute -top-0.5 -right-0.5" />
+                )}
+                {!dailyCheckInState.hasClaimedToday && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 absolute -top-0.5 -right-0.5" />
+                )}
+              </button>
+            )}
+
             {/* Sound Toggle */}
             <button
               onClick={toggleSound}
@@ -313,12 +334,38 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
 
               {userDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-[#0e121a] border border-[#242c3d] rounded-2xl shadow-2xl p-2 z-50">
-                  <div className="p-2 border-b border-[#242c3d] mb-1">
-                    <p className="text-xs font-bold text-white">{currentUser?.username}</p>
-                    <p className="text-[11px] text-gray-400 font-mono-numbers">{currentUser?.id}</p>
-                    <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-white/5">
-                      <span className="text-[10px] text-gray-400">Demo Balance:</span>
+                <div className="absolute right-0 mt-2 w-72 bg-[#0e121a] border border-[#242c3d] rounded-2xl shadow-2xl p-2.5 z-50">
+                  <div className="p-2 border-b border-[#242c3d] mb-1 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-white">{currentUser?.username}</p>
+                      {currentUser?.accountStatus === 'BLOCKED' ? (
+                        <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-red-500/20 text-red-400 border border-red-500/30">
+                          BLOCKED
+                        </span>
+                      ) : currentUser?.accountStatus === 'FROZEN' ? (
+                        <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                          FROZEN
+                        </span>
+                      ) : currentUser?.accountStatus === 'SUSPENDED' ? (
+                        <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          SUSPENDED
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          ACTIVE
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] font-mono-numbers">
+                      <span className="text-gray-400">User ID:</span>
+                      <span className="text-[#f5d061] font-bold">{currentUser?.id}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] font-mono-numbers">
+                      <span className="text-gray-400">Game Account:</span>
+                      <span className="text-cyan-300 font-semibold">{currentUser?.gameAccountId}</span>
+                    </div>
+                    <div className="flex items-center justify-between pt-1.5 border-t border-white/5">
+                      <span className="text-[10px] text-gray-400">Wallet Balance:</span>
                       <span className="text-xs font-bold text-[#f5d061] font-mono-numbers">
                         ₹{currentUser?.balance.toLocaleString('en-IN')}
                       </span>
@@ -347,6 +394,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </button>
                   </div>
 
+
+                  {currentUser && (
+                    <div className="p-1.5 border-b border-[#242c3d]">
+                      <button
+                        onClick={() => {
+                          openDailyCheckIn();
+                          setUserDropdownOpen(false);
+                        }}
+                        className="w-full flex items-center justify-between p-2 rounded-xl text-left text-xs bg-[#121724] hover:bg-[#1a2234] text-white border border-[#242c3d] hover:border-amber-500/40 transition-all font-bold cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Gift className="w-4 h-4 text-[#f5d061]" />
+                          <div>
+                            <p className="leading-tight">7-Day Daily Check-In</p>
+                            <p className="text-[9px] text-gray-400 font-normal">Day {dailyCheckInState.currentDay} of 7 &bull; {dailyCheckInState.streak} Day Streak</p>
+                          </div>
+                        </div>
+                        {!dailyCheckInState.hasClaimedToday ? (
+                          <span className="bg-[#f5d061] text-black font-black text-[9px] px-1.5 py-0.5 rounded-full animate-pulse">
+                            CLAIM
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-emerald-400 font-bold">Claimed ✓</span>
+                        )}
+                      </button>
+                    </div>
+                  )}
 
                   <div className="border-t border-[#242c3d] pt-1 mt-1">
                     <button
@@ -398,6 +472,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                 +100 Bonus
               </span>
             </button>
+
+            {/* Mobile 7-Day Daily Check-In Button */}
+            {currentUser && (
+              <button
+                onClick={() => {
+                  openDailyCheckIn();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-between p-2.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-[#f5d061]/20 to-amber-500/15 border border-amber-500/40 text-[#f5d061] font-bold text-xs shadow-md mb-2 cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Gift className="w-4 h-4 text-[#f5d061]" />
+                  <span>7-Day Daily Check-In (Day {dailyCheckInState.currentDay}/7)</span>
+                </div>
+                {!dailyCheckInState.hasClaimedToday ? (
+                  <span className="bg-[#f5d061] text-black font-black text-[10px] px-2 py-0.5 rounded-full animate-pulse">
+                    Claim Ready!
+                  </span>
+                ) : (
+                  <span className="bg-emerald-950/80 text-emerald-400 border border-emerald-500/30 text-[10px] px-2 py-0.5 rounded-full">
+                    Claimed ✓
+                  </span>
+                )}
+              </button>
+            )}
 
             <button
               onClick={() => {

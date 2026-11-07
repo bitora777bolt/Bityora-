@@ -229,7 +229,15 @@ export const MinesGame: React.FC = () => {
   // Start round
   const handleStartGame = () => {
     if (!currentUser) return;
-    if (currentUser.isSuspended) {
+    if (currentUser.accountStatus === 'BLOCKED') {
+      setStatusMessage('Account PERMANENTLY BLOCKED by administrator for policy violations.');
+      return;
+    }
+    if (currentUser.accountStatus === 'FROZEN') {
+      setStatusMessage('Account FROZEN: In-game betting is restricted pending security audit.');
+      return;
+    }
+    if (currentUser.isSuspended || currentUser.accountStatus === 'SUSPENDED') {
       setStatusMessage('Account suspended by administrator. Cannot start round.');
       return;
     }

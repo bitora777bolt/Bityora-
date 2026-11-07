@@ -14,6 +14,7 @@ import {
   CheckCircle,
   Play,
   Lock,
+  Gift,
 } from 'lucide-react';
 
 interface HomeHubProps {
@@ -23,7 +24,7 @@ interface HomeHubProps {
 }
 
 export const HomeHub: React.FC<HomeHubProps> = ({ onSelectTab, onOpenCashier, onRequireAuth }) => {
-  const { currentUser } = useGame();
+  const { currentUser, dailyCheckInState, openDailyCheckIn } = useGame();
 
   const handlePlayNow = (gameTab: string, gameTitle: string) => {
     if (!currentUser) {
@@ -171,7 +172,49 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onSelectTab, onOpenCashier, on
   ];
 
   return (
-    <div className="space-y-10 py-2 sm:py-4">
+    <div className="space-y-8 py-2 sm:py-4">
+      {/* 7-Day Cyclical Progressive Daily Check-In Banner */}
+      <div className="bg-gradient-to-r from-[#171206] via-[#241a06] to-[#120e04] border-2 border-[#d4af37]/50 rounded-3xl p-4 sm:p-5 shadow-[0_0_40px_rgba(212,175,55,0.2)] flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#f5d061] to-amber-600 flex items-center justify-center text-black font-black text-2xl shadow-[0_0_20px_rgba(245,208,97,0.5)] shrink-0">
+            🎁
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-[#f5d061] px-2 py-0.5 rounded-full border border-amber-500/30">
+                7-Day Cyclical Rewards
+              </span>
+              <span className="text-xs text-gray-400 font-mono">
+                Day {dailyCheckInState.currentDay} of 7 &bull; {dailyCheckInState.streak} Day Streak
+              </span>
+            </div>
+            <h3 className="font-cinzel text-base sm:text-lg font-black text-white mt-0.5">
+              <span>DAILY CHECK-IN REWARD: </span>
+              <span className="text-[#f5d061]">PEAKING AT 6 CREDITS ON DAY 7</span>
+            </h3>
+            <p className="text-xs text-gray-300">
+              Claim smaller incremental credits daily, climaxing at the +6 Credits Peak on Day 7, then resetting to Day 1.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={openDailyCheckIn}
+          className={`py-3 px-6 rounded-2xl font-black text-xs sm:text-sm uppercase tracking-wider transition-all cursor-pointer shrink-0 shadow-lg active:scale-95 flex items-center gap-2 ${
+            !dailyCheckInState.hasClaimedToday
+              ? 'bg-gradient-to-r from-amber-400 via-[#f5d061] to-yellow-500 hover:brightness-110 text-black shadow-[0_0_25px_rgba(245,208,97,0.5)] animate-pulse'
+              : 'bg-[#151c2a] border border-[#242c3d] text-gray-300 hover:text-white'
+          }`}
+        >
+          <Gift className="w-4 h-4 text-amber-400" />
+          <span>
+            {!dailyCheckInState.hasClaimedToday
+              ? `Claim Day ${dailyCheckInState.currentDay} Reward`
+              : `Day ${dailyCheckInState.currentDay} Claimed • View Calendar`}
+          </span>
+        </button>
+      </div>
+
       {/* 1. Opulent Hero Section with Gold Radiance */}
       <div className="relative rounded-3xl bg-gradient-to-b from-[#161a29] via-[#0e121a] to-[#07090e] border-2 border-[#d4af37]/45 p-6 sm:p-12 overflow-hidden shadow-[0_0_70px_rgba(212,175,55,0.2)]">
         {/* Decorative Golden Ambient Glows */}

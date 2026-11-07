@@ -22,8 +22,20 @@ import {
   RefreshCw,
   Sparkles,
   Download,
+  Snowflake,
+  ShieldAlert,
+  Gamepad2,
+  Activity,
+  Radio,
+  FileCode,
+  Copy,
+  Check,
+  TrendingUp,
+  AlertOctagon,
+  Ban,
+  Sliders,
 } from 'lucide-react';
-import { User } from '../../types';
+import { User, UserAccountStatus, RiskLevel, GameRecord } from '../../types';
 
 interface AdminDashboardProps {
   onOpenExport?: () => void;
@@ -35,25 +47,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
     users,
     auditLogs,
     depositRequests,
+    gameHistory,
     loginAs,
     adminGrantCredits,
     adminDeductCredits,
     adminToggleSuspension,
+    adminSetAccountStatus,
+    adminFlagIllicitBehavior,
     adminProcessDepositRequest,
     ownerPaymentQr,
     updateOwnerPaymentQr,
   } = useGame();
 
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | UserAccountStatus | 'HIGH_RISK'>('ALL');
+  
+  // Modals & Active selections
   const [selectedUserForAction, setSelectedUserForAction] = useState<User | null>(null);
-  const [actionType, setActionType] = useState<'GRANT' | 'DEDUCT' | null>(null);
+  const [actionType, setActionType] = useState<'GRANT' | 'DEDUCT' | 'STATUS_CHANGE' | 'FLAG_VIOLATION' | 'INSPECT_ACTIVITY' | null>(null);
+  
+  // Status Change form state
+  const [targetNewStatus, setTargetNewStatus] = useState<UserAccountStatus>('FROZEN');
+  const [statusReason, setStatusReason] = useState<string>('');
+  const [suspensionHours, setSuspensionHours] = useState<number>(24);
+  const [violationType, setViolationType] = useState<string>('Botting / Automation');
+
+  // Credit adjustment state
   const [adjustAmount, setAdjustAmount] = useState<number>(500);
   const [adjustReason, setAdjustReason] = useState<string>('');
+
+  // Flag violation form state
+  const [flagTag, setFlagTag] = useState<string>('Unusual betting velocity (>15 bets/min)');
+  const [flagDetails, setFlagDetails] = useState<string>('');
+
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'audit' | 'deposits' | 'scanner'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'activity' | 'audit' | 'prompt' | 'deposits' | 'scanner'>('users');
+  
+  // In-Game Activity filter
+  const [activitySearch, setActivitySearch] = useState<string>('');
+  const [activityGameFilter, setActivityGameFilter] = useState<string>('ALL');
+
+  // Scanner state
   const [newQrInputUrl, setNewQrInputUrl] = useState<string>('');
   const [scannerSuccessMsg, setScannerSuccessMsg] = useState<string | null>(null);
 
+  // System Prompt copy state
+  const [promptCopied, setPromptCopied] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -98,20 +137,99 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
     );
   }
 
-  // Filtered users by ID or username
-  const filteredUsers = users.filter(u =>
-    u.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    u.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filtered users by ID, Game Account ID, or username
+  const filteredUsers = users.filter(u => {
+    const matchesSearch =
+      u.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (u.gameAccountId && u.gameAccountId.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.email.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (statusFilter === 'ALL') return true;
+    if (statusFilter === 'HIGH_RISK') return u.riskLevel === 'HIGH' || u.riskLevel === 'CRITICAL' || u.violationCount > 0;
+    return u.accountStatus === statusFilter;
+  });
 
   const totalCirculating = users.reduce((acc, u) => acc + u.balance, 0);
-  const totalSuspended = users.filter(u => u.isSuspended).length;
+  const totalActive = users.filter(u => u.accountStatus === 'ACTIVE').length;
+  const totalFrozen = users.filter(u => u.accountStatus === 'FROZEN').length;
+  const totalSuspended = users.filter(u => u.accountStatus === 'SUSPENDED').length;
+  const totalBlocked = users.filter(u => u.accountStatus === 'BLOCKED').length;
+  const totalInGame = users.filter(u => u.gameSessionStatus === 'IN_GAME').length;
   const pendingRequests = depositRequests.filter(r => r.status === 'PENDING').length;
 
+  // Filtered in-game activities
+  const filteredActivities = gameHistory.filter(g => {
+    const matchesSearch =
+      activitySearch === '' ||
+      g.userId.toLowerCase().includes(activitySearch.toLowerCase()) ||
+      (g.gameAccountId && g.gameAccountId.toLowerCase().includes(activitySearch.toLowerCase())) ||
+      (g.username && g.username.toLowerCase().includes(activitySearch.toLowerCase())) ||
+      g.gameName.toLowerCase().includes(activitySearch.toLowerCase());
+
+    const matchesGame = activityGameFilter === 'ALL' || g.game === activityGameFilter;
+    return matchesSearch && matchesGame;
+  });
+
+  // Handle Execute Status Change (Freeze, Suspend, Block, Reactivate)
+  const handleExecuteStatusChange = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserForAction) return;
+
+    if (!statusReason.trim()) {
+      setFeedback({ type: 'error', text: 'Please specify an official reason or violation policy note.' });
+      return;
+    }
+
+    const res = adminSetAccountStatus(
+      selectedUserForAction.id,
+      targetNewStatus,
+      statusReason,
+      violationType,
+      targetNewStatus === 'SUSPENDED' ? suspensionHours : undefined
+    );
+
+    if (res.success) {
+      setFeedback({ type: 'success', text: res.message });
+      setTimeout(() => {
+        setSelectedUserForAction(null);
+        setActionType(null);
+        setStatusReason('');
+      }, 1200);
+    } else {
+      setFeedback({ type: 'error', text: res.message });
+    }
+  };
+
+  // Handle Execute Flag Violation
+  const handleExecuteFlagViolation = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserForAction) return;
+
+    const res = adminFlagIllicitBehavior(
+      selectedUserForAction.id,
+      flagTag,
+      flagDetails || 'Flagged by supervisor audit review'
+    );
+
+    if (res.success) {
+      setFeedback({ type: 'success', text: res.message });
+      setTimeout(() => {
+        setSelectedUserForAction(null);
+        setActionType(null);
+        setFlagDetails('');
+      }, 1200);
+    } else {
+      setFeedback({ type: 'error', text: res.message });
+    }
+  };
+
+  // Handle Execute Credit Adjustment
   const handleExecuteAdjustment = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedUserForAction || !actionType) return;
+    if (!selectedUserForAction) return;
 
     if (adjustAmount <= 0) {
       setFeedback({ type: 'error', text: 'Adjustment amount must be greater than zero.' });
@@ -134,7 +252,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
       } else {
         setFeedback({ type: 'error', text: res.message });
       }
-    } else {
+    } else if (actionType === 'DEDUCT') {
       const res = adminDeductCredits(
         selectedUserForAction.id,
         adjustAmount,
@@ -153,6 +271,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
     }
   };
 
+  const copyPromptText = () => {
+    const promptText = `SYSTEM PROMPT: BITYORA USER IDENTIFICATION & ADMINISTRATOR AUTHORITY DIRECTIVE
+1. Every registered user receives an immutable Unique User ID (Format: BIT-XXXXXX), linked 1:1 with their Firebase Auth UID and direct game account credentials (BTY-GAME-XXXXXX).
+2. All game titles stream real-time in-game telemetry to the connected game account, allowing continuous anti-fraud monitoring of wagers, win rates, and betting velocity.
+3. The platform administrator holds full sovereign authority to track, suspend, freeze (asset & betting lock), or permanently block any User ID found engaging in illicit behavior or terms violations.`;
+    navigator.clipboard.writeText(promptText);
+    setPromptCopied(true);
+    setTimeout(() => setPromptCopied(false), 2000);
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Banner */}
@@ -164,14 +292,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-cinzel text-xl sm:text-2xl font-black text-white">
-                Admin Command Suite
+                Admin Sovereign Authority Suite
               </h1>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">
-                ACTIVE SUPERVISOR: {currentUser.id}
+                OFFICER: {currentUser.id}
               </span>
             </div>
             <p className="text-xs text-gray-400">
-              Audit Logs &bull; User ID Search &bull; Virtual Credit Controls (Max ₹5,000 Enforced)
+              User ID Management &bull; Connected Game Accounts &bull; Live In-Game Surveillance &bull; Enforcement Engine
             </p>
           </div>
         </div>
@@ -199,26 +327,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
       </div>
 
       {/* Overview Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-4">
           <span className="text-[10px] text-gray-400 uppercase font-semibold block">Registered Users</span>
           <span className="font-mono-numbers text-xl font-bold text-white mt-1 block">
-            {users.length} Accounts
+            {users.length} Unique IDs
           </span>
+          <span className="text-[10px] text-emerald-400 mt-0.5 block">{totalActive} Active</span>
         </div>
 
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-4">
-          <span className="text-[10px] text-gray-400 uppercase font-semibold block">Suspended Accounts</span>
-          <span className="font-mono-numbers text-xl font-bold text-red-400 mt-1 block">
-            {totalSuspended} Locked
+          <span className="text-[10px] text-gray-400 uppercase font-semibold block">Live In-Game</span>
+          <span className="font-mono-numbers text-xl font-bold text-cyan-300 mt-1 block flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+            {totalInGame} Connected
           </span>
+          <span className="text-[10px] text-gray-400 mt-0.5 block">Live Telemetry</span>
         </div>
 
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-4">
-          <span className="text-[10px] text-gray-400 uppercase font-semibold block">Pending Demo Deposits</span>
-          <span className="font-mono-numbers text-xl font-bold text-amber-400 mt-1 block">
-            {pendingRequests} Requests
-          </span>
+          <span className="text-[10px] text-gray-400 uppercase font-semibold block">Restricted Accounts</span>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="font-mono-numbers text-lg font-bold text-cyan-400" title="Frozen">
+              ❄ {totalFrozen}
+            </span>
+            <span className="text-gray-600">/</span>
+            <span className="font-mono-numbers text-lg font-bold text-amber-400" title="Suspended">
+              ⏳ {totalSuspended}
+            </span>
+            <span className="text-gray-600">/</span>
+            <span className="font-mono-numbers text-lg font-bold text-red-500" title="Blocked">
+              🚫 {totalBlocked}
+            </span>
+          </div>
+          <span className="text-[10px] text-gray-400 mt-0.5 block">Frozen / Susp. / Ban</span>
         </div>
 
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-4">
@@ -226,38 +368,71 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
           <span className="font-mono-numbers text-xl font-bold text-emerald-400 mt-1 block">
             {auditLogs.length} Actions
           </span>
+          <span className="text-[10px] text-gray-400 mt-0.5 block">Immutable Trail</span>
+        </div>
+
+        <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-4">
+          <span className="text-[10px] text-gray-400 uppercase font-semibold block">Pending Deposits</span>
+          <span className="font-mono-numbers text-xl font-bold text-amber-400 mt-1 block">
+            {pendingRequests} Requests
+          </span>
+          <span className="text-[10px] text-gray-400 mt-0.5 block">Verification Queue</span>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-[#242c3d] gap-2">
+      <div className="flex border-b border-[#242c3d] gap-2 overflow-x-auto pb-1">
         <button
           onClick={() => setActiveTab('users')}
-          className={`flex items-center gap-2 px-5 py-3 border-b-2 text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === 'users'
               ? 'border-[#d4af37] text-[#f5d061] bg-[#d4af37]/5'
               : 'border-transparent text-gray-400 hover:text-white'
           }`}
         >
           <UserCheck className="w-4 h-4" />
-          User Management ({filteredUsers.length})
+          User Authority ({filteredUsers.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('activity')}
+          className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all whitespace-nowrap ${
+            activeTab === 'activity'
+              ? 'border-[#d4af37] text-[#f5d061] bg-[#d4af37]/5'
+              : 'border-transparent text-gray-400 hover:text-white'
+          }`}
+        >
+          <Activity className="w-4 h-4 text-cyan-400" />
+          Live In-Game Surveillance ({gameHistory.length})
         </button>
 
         <button
           onClick={() => setActiveTab('audit')}
-          className={`flex items-center gap-2 px-5 py-3 border-b-2 text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === 'audit'
               ? 'border-[#d4af37] text-[#f5d061] bg-[#d4af37]/5'
               : 'border-transparent text-gray-400 hover:text-white'
           }`}
         >
           <FileText className="w-4 h-4" />
-          Adjustment Audit Log ({auditLogs.length})
+          Audit Trail ({auditLogs.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('prompt')}
+          className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all whitespace-nowrap ${
+            activeTab === 'prompt'
+              ? 'border-[#d4af37] text-[#f5d061] bg-[#d4af37]/5'
+              : 'border-transparent text-gray-400 hover:text-white'
+          }`}
+        >
+          <FileCode className="w-4 h-4 text-amber-400" />
+          System Prompt &amp; Directive
         </button>
 
         <button
           onClick={() => setActiveTab('deposits')}
-          className={`flex items-center gap-2 px-5 py-3 border-b-2 text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === 'deposits'
               ? 'border-[#d4af37] text-[#f5d061] bg-[#d4af37]/5'
               : 'border-transparent text-gray-400 hover:text-white'
@@ -269,38 +444,59 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
 
         <button
           onClick={() => setActiveTab('scanner')}
-          className={`flex items-center gap-2 px-5 py-3 border-b-2 text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === 'scanner'
               ? 'border-[#d4af37] text-[#f5d061] bg-[#d4af37]/5'
               : 'border-transparent text-gray-400 hover:text-white'
           }`}
         >
           <QrCode className="w-4 h-4" />
-          Owner Payment QR Scanner
-          <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono-numbers">
-            {ownerPaymentQr ? 'CUSTOM' : 'DEFAULT'}
-          </span>
+          Owner QR Scanner
         </button>
       </div>
 
-      {/* Tab 1: User Management */}
+      {/* Tab 1: User Authority & Management */}
       {activeTab === 'users' && (
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-5 shadow-xl space-y-4">
-          {/* Search bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+          {/* Search bar & Status Filter Buttons */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div className="relative w-full sm:w-96">
               <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search by User ID (e.g. BIT-782914) or username..."
+                placeholder="Search by User ID (BIT-XXXXXX), Game ID (BTY-GAME-XXXXXX), or username..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full bg-[#121622] border border-[#242c3d] rounded-xl pl-10 pr-4 py-2 text-xs font-mono-numbers text-white focus:outline-none focus:border-[#d4af37]"
               />
             </div>
-            <span className="text-xs text-gray-400">
-              Displaying {filteredUsers.length} of {users.length} accounts
-            </span>
+
+            {/* Status Filter Badges */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
+              {(['ALL', 'ACTIVE', 'FROZEN', 'SUSPENDED', 'BLOCKED', 'HIGH_RISK'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setStatusFilter(f)}
+                  className={`px-3 py-1.5 rounded-lg font-bold border transition-all cursor-pointer shrink-0 ${
+                    statusFilter === f
+                      ? 'bg-amber-500/20 text-[#f5d061] border-[#d4af37]'
+                      : 'bg-[#121622] text-gray-400 border-[#242c3d] hover:text-white'
+                  }`}
+                >
+                  {f === 'ALL'
+                    ? 'All Users'
+                    : f === 'HIGH_RISK'
+                    ? '⚠️ High Risk'
+                    : f === 'FROZEN'
+                    ? '❄ Frozen'
+                    : f === 'SUSPENDED'
+                    ? '⏳ Suspended'
+                    : f === 'BLOCKED'
+                    ? '🚫 Blocked'
+                    : '✓ Active'}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Users Table */}
@@ -308,111 +504,381 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-[#242c3d] text-gray-400 uppercase font-mono-numbers text-[10px]">
-                  <th className="py-2.5 px-3">User ID</th>
-                  <th className="py-2.5 px-3">User</th>
-                  <th className="py-2.5 px-3">Role</th>
-                  <th className="py-2.5 px-3">Demo Balance</th>
+                  <th className="py-2.5 px-3">Unique User ID</th>
+                  <th className="py-2.5 px-3">Connected Game Account</th>
+                  <th className="py-2.5 px-3">Player / Email</th>
                   <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3">VIP Tier</th>
-                  <th className="py-2.5 px-3 text-right">Actions</th>
+                  <th className="py-2.5 px-3">Live Telemetry</th>
+                  <th className="py-2.5 px-3">Risk Level</th>
+                  <th className="py-2.5 px-3">Balance</th>
+                  <th className="py-2.5 px-3 text-right">Admin Sovereign Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1e2535]">
-                {filteredUsers.map(u => (
-                  <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                    <td className="py-3 px-3 font-mono-numbers font-bold text-[#f5d061]">{u.id}</td>
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-2">
-                        <img src={u.avatar} alt={u.username} className="w-6 h-6 rounded-md object-cover" />
-                        <div>
-                          <p className="font-bold text-white">{u.username}</p>
-                          <p className="text-[10px] text-gray-400">{u.email}</p>
+                {filteredUsers.map(u => {
+                  const isBlocked = u.accountStatus === 'BLOCKED';
+                  const isFrozen = u.accountStatus === 'FROZEN';
+                  const isSuspended = u.accountStatus === 'SUSPENDED';
+
+                  return (
+                    <tr key={u.id} className="hover:bg-white/5 transition-colors">
+                      {/* Unique User ID */}
+                      <td className="py-3 px-3 font-mono-numbers font-bold text-[#f5d061]">
+                        <div className="flex items-center gap-1.5">
+                          <span>{u.id}</span>
+                          {u.role === 'admin' && (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              ADMIN
+                            </span>
+                          )}
                         </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 font-semibold text-gray-300">{u.role.toUpperCase()}</td>
-                    <td className="py-3 px-3 font-mono-numbers font-bold text-white">
-                      ₹{u.balance.toLocaleString('en-IN')}
-                      <span className="text-[10px] text-gray-500 font-normal ml-1">/ 5,000</span>
-                    </td>
-                    <td className="py-3 px-3">
-                      {u.isSuspended ? (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/40">
-                          Suspended
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                          Active
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className="text-[10px] font-bold text-amber-300">{u.vipTier}</span>
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {/* Grant Credits */}
-                        <button
-                          onClick={() => {
-                            setSelectedUserForAction(u);
-                            setActionType('GRANT');
-                            setFeedback(null);
-                          }}
-                          className="p-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/40 border border-emerald-500/30 transition-colors"
-                          title="Grant Virtual Credits"
-                        >
-                          <PlusCircle className="w-4 h-4" />
-                        </button>
+                      </td>
 
-                        {/* Deduct Credits */}
-                        <button
-                          onClick={() => {
-                            setSelectedUserForAction(u);
-                            setActionType('DEDUCT');
-                            setFeedback(null);
-                          }}
-                          className="p-1.5 rounded-lg bg-red-600/20 text-red-300 hover:bg-red-600/40 border border-red-500/30 transition-colors"
-                          title="Deduct Virtual Credits"
-                        >
-                          <MinusCircle className="w-4 h-4" />
-                        </button>
+                      {/* Connected Game Account */}
+                      <td className="py-3 px-3 font-mono-numbers text-cyan-300 text-[11px]">
+                        <span className="bg-[#121622] px-2 py-0.5 rounded border border-[#242c3d]">
+                          {u.gameAccountId || `BTY-GAME-${u.id.replace(/[^a-zA-Z0-9]/g, '')}`}
+                        </span>
+                      </td>
 
-                        {/* Suspend / Unsuspend */}
-                        <button
-                          onClick={() =>
-                            adminToggleSuspension(
-                              u.id,
-                              u.isSuspended ? 'Account unsuspended by admin' : 'Account suspended for policy check'
-                            )
-                          }
-                          className={`p-1.5 rounded-lg border transition-colors ${
-                            u.isSuspended
-                              ? 'bg-amber-600/20 text-amber-300 hover:bg-amber-600/40 border-amber-500/30'
-                              : 'bg-gray-800 text-gray-400 hover:text-red-400 border-gray-700'
-                          }`}
-                          title={u.isSuspended ? 'Reactivate Account' : 'Suspend Account'}
-                        >
-                          {u.isSuspended ? <UserCheck className="w-4 h-4" /> : <UserX className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      {/* Player / Email */}
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-2">
+                          <img src={u.avatar} alt={u.username} className="w-6 h-6 rounded-md object-cover" />
+                          <div>
+                            <p className="font-bold text-white">{u.username}</p>
+                            <p className="text-[10px] text-gray-400">{u.email}</p>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Account Status Badge */}
+                      <td className="py-3 px-3">
+                        {isBlocked ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-500/20 text-red-400 border border-red-500/40 flex items-center gap-1 w-fit">
+                            <Ban className="w-3 h-3" /> BLOCKED
+                          </span>
+                        ) : isFrozen ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1 w-fit">
+                            <Snowflake className="w-3 h-3" /> FROZEN
+                          </span>
+                        ) : isSuspended ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 w-fit">
+                            <Lock className="w-3 h-3" /> SUSPENDED
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 w-fit">
+                            <CheckCircle className="w-3 h-3" /> ACTIVE
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Live Telemetry / Session State */}
+                      <td className="py-3 px-3 text-[11px]">
+                        {u.gameSessionStatus === 'IN_GAME' ? (
+                          <div className="flex items-center gap-1 text-cyan-300 font-bold">
+                            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                            <span>{u.currentGame || 'In Game'}</span>
+                          </div>
+                        ) : u.gameSessionStatus === 'ONLINE' ? (
+                          <div className="flex items-center gap-1 text-emerald-400">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                            <span>Online</span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-500">{u.lastActivity || 'Offline'}</span>
+                        )}
+                      </td>
+
+                      {/* Risk Level & Violations */}
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase ${
+                              u.riskLevel === 'CRITICAL'
+                                ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                                : u.riskLevel === 'HIGH'
+                                ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
+                                : u.riskLevel === 'MEDIUM'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            }`}
+                          >
+                            {u.riskLevel || 'LOW'}
+                          </span>
+                          {u.violationCount > 0 && (
+                            <span className="text-[10px] font-bold text-red-400" title={`${u.violationCount} Violations`}>
+                              ({u.violationCount}v)
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Balance */}
+                      <td className="py-3 px-3 font-mono-numbers font-bold text-white">
+                        ₹{u.balance.toLocaleString('en-IN')}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* Inspect In-Game Activities */}
+                          <button
+                            onClick={() => {
+                              setSelectedUserForAction(u);
+                              setActionType('INSPECT_ACTIVITY');
+                              setFeedback(null);
+                            }}
+                            className="p-1.5 rounded-lg bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600/40 border border-cyan-500/30 transition-colors"
+                            title="Monitor In-Game Activities"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Full Sovereign Authority Status Gate (Freeze, Suspend, Block, Reactivate) */}
+                          <button
+                            onClick={() => {
+                              setSelectedUserForAction(u);
+                              setActionType('STATUS_CHANGE');
+                              setTargetNewStatus(
+                                isBlocked ? 'ACTIVE' : isFrozen ? 'ACTIVE' : isSuspended ? 'ACTIVE' : 'FROZEN'
+                              );
+                              setStatusReason(u.statusReason || '');
+                              setFeedback(null);
+                            }}
+                            className={`p-1.5 rounded-lg border transition-colors ${
+                              isBlocked
+                                ? 'bg-red-600/25 text-red-400 hover:bg-red-600/40 border-red-500/40'
+                                : isFrozen
+                                ? 'bg-cyan-600/25 text-cyan-300 hover:bg-cyan-600/40 border-cyan-500/40'
+                                : isSuspended
+                                ? 'bg-amber-600/25 text-amber-300 hover:bg-amber-600/40 border-amber-500/40'
+                                : 'bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700 border-gray-700'
+                            }`}
+                            title="Authority Status: Freeze, Suspend, or Block"
+                          >
+                            <ShieldAlert className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Flag Illicit Behavior */}
+                          <button
+                            onClick={() => {
+                              setSelectedUserForAction(u);
+                              setActionType('FLAG_VIOLATION');
+                              setFeedback(null);
+                            }}
+                            className="p-1.5 rounded-lg bg-orange-600/20 text-orange-300 hover:bg-orange-600/40 border border-orange-500/30 transition-colors"
+                            title="Flag Illicit Behavior / Policy Violation"
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Grant Credits */}
+                          <button
+                            onClick={() => {
+                              setSelectedUserForAction(u);
+                              setActionType('GRANT');
+                              setFeedback(null);
+                            }}
+                            className="p-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/40 border border-emerald-500/30 transition-colors"
+                            title="Grant Virtual Credits"
+                          >
+                            <PlusCircle className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Deduct Credits */}
+                          <button
+                            onClick={() => {
+                              setSelectedUserForAction(u);
+                              setActionType('DEDUCT');
+                              setFeedback(null);
+                            }}
+                            className="p-1.5 rounded-lg bg-red-600/20 text-red-300 hover:bg-red-600/40 border border-red-500/30 transition-colors"
+                            title="Deduct Virtual Credits"
+                          >
+                            <MinusCircle className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* Tab 2: Audit Logs */}
+      {/* Tab 2: Live In-Game Surveillance */}
+      {activeTab === 'activity' && (
+        <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-5 shadow-xl space-y-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-cinzel text-base font-bold text-white flex items-center gap-2">
+                <Activity className="w-5 h-5 text-cyan-400 animate-pulse" />
+                Live In-Game Surveillance &amp; Round Telemetry
+              </h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Surveillance ledger linked directly to connected game accounts. Anomaly telemetry alerts on suspicious wagers and velocity.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="relative w-64">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Filter by User ID or Game..."
+                  value={activitySearch}
+                  onChange={e => setActivitySearch(e.target.value)}
+                  className="w-full bg-[#121622] border border-[#242c3d] rounded-xl pl-9 pr-3 py-1.5 text-xs font-mono-numbers text-white focus:outline-none focus:border-[#d4af37]"
+                />
+              </div>
+
+              <select
+                value={activityGameFilter}
+                onChange={e => setActivityGameFilter(e.target.value)}
+                className="bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#d4af37]"
+              >
+                <option value="ALL">All Games</option>
+                <option value="MINES_24X24">Mines 24x24</option>
+                <option value="AVIATOR">Aviator / Crash</option>
+                <option value="TOWER_CLIMB">Tower Climb</option>
+                <option value="CRYPTO_TRADING">Crypto Trading</option>
+                <option value="FORTUNE_TIGER">Fortune Tiger</option>
+                <option value="EUROPEAN_ROULETTE">Roulette</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-[#242c3d] text-gray-400 uppercase font-mono-numbers text-[10px]">
+                  <th className="py-2.5 px-3">Round ID &amp; Time</th>
+                  <th className="py-2.5 px-3">Unique User ID</th>
+                  <th className="py-2.5 px-3">Connected Game Account</th>
+                  <th className="py-2.5 px-3">Game Title</th>
+                  <th className="py-2.5 px-3">Wager</th>
+                  <th className="py-2.5 px-3">Multiplier</th>
+                  <th className="py-2.5 px-3">Profit / Loss</th>
+                  <th className="py-2.5 px-3">Anomaly Telemetry</th>
+                  <th className="py-2.5 px-3 text-right">Intervention</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#1e2535]">
+                {filteredActivities.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center text-gray-400">
+                      No game rounds matching your surveillance filter.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredActivities.map(g => {
+                    const targetUser = users.find(u => u.id === g.userId);
+
+                    return (
+                      <tr key={g.id} className="hover:bg-white/5 transition-colors">
+                        {/* Round ID & Time */}
+                        <td className="py-3 px-3">
+                          <p className="font-mono-numbers font-bold text-gray-300">{g.id}</p>
+                          <p className="font-mono-numbers text-[10px] text-gray-500">{g.timestamp}</p>
+                        </td>
+
+                        {/* Unique User ID */}
+                        <td className="py-3 px-3 font-mono-numbers font-bold text-[#f5d061]">
+                          {g.userId}
+                          {targetUser && (
+                            <p className="text-[10px] text-gray-400 font-sans font-normal">{targetUser.username}</p>
+                          )}
+                        </td>
+
+                        {/* Connected Game Account */}
+                        <td className="py-3 px-3 font-mono-numbers text-cyan-300 text-[11px]">
+                          {g.gameAccountId || `BTY-GAME-${g.userId.replace(/[^a-zA-Z0-9]/g, '')}`}
+                        </td>
+
+                        {/* Game Title */}
+                        <td className="py-3 px-3 font-semibold text-white">
+                          <div className="flex items-center gap-1.5">
+                            <Gamepad2 className="w-3.5 h-3.5 text-amber-400" />
+                            <span>{g.gameName}</span>
+                          </div>
+                        </td>
+
+                        {/* Wager */}
+                        <td className="py-3 px-3 font-mono-numbers text-gray-300">
+                          ₹{g.wager.toLocaleString('en-IN')}
+                        </td>
+
+                        {/* Multiplier */}
+                        <td className="py-3 px-3 font-mono-numbers font-bold text-amber-300">
+                          {g.multiplier > 0 ? `${g.multiplier.toFixed(2)}x` : '-'}
+                        </td>
+
+                        {/* Profit / Loss */}
+                        <td className="py-3 px-3 font-mono-numbers font-bold">
+                          {g.profit >= 0 ? (
+                            <span className="text-emerald-400">+₹{g.profit.toLocaleString('en-IN')}</span>
+                          ) : (
+                            <span className="text-red-400">-₹{Math.abs(g.profit).toLocaleString('en-IN')}</span>
+                          )}
+                        </td>
+
+                        {/* Anomaly Telemetry */}
+                        <td className="py-3 px-3">
+                          {g.riskFlag ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/40 animate-pulse">
+                              ⚠️ {g.riskFlag}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-gray-500">Normal</span>
+                          )}
+                        </td>
+
+                        {/* Intervention Action */}
+                        <td className="py-3 px-3 text-right">
+                          {targetUser && (
+                            <button
+                              onClick={() => {
+                                setSelectedUserForAction(targetUser);
+                                setActionType('STATUS_CHANGE');
+                                setTargetNewStatus('FROZEN');
+                                setStatusReason(`Investigating suspicious round ${g.id} on ${g.gameName}`);
+                                setFeedback(null);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-red-600/20 hover:bg-red-600/40 text-red-300 border border-red-500/30 text-[10px] font-bold transition-colors"
+                            >
+                              Freeze / Review
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: Audit Trail */}
       {activeTab === 'audit' && (
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-5 shadow-xl space-y-4">
-          <h3 className="font-cinzel text-base font-bold text-white">
-            Administrative Audit Log (Official Audit Trail)
-          </h3>
-          <p className="text-xs text-gray-400">
-            Every virtual credit grant, deduction, and account suspension is permanently logged with supervisor ID, target user ID, reason, and timestamp.
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-cinzel text-base font-bold text-white">
+                Administrative Audit Log (Official Immutable Trail)
+              </h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Every action (Freeze, Suspend, Block, Reactivate, Flag, Credit Grant/Deduct) is recorded with Supervisor ID and timestamp.
+              </p>
+            </div>
+            <span className="text-xs font-mono-numbers text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg border border-emerald-500/20">
+              {auditLogs.length} Verified Entries
+            </span>
+          </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -422,8 +888,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                   <th className="py-2.5 px-3">Supervisor ID</th>
                   <th className="py-2.5 px-3">Target User ID</th>
                   <th className="py-2.5 px-3">Action</th>
-                  <th className="py-2.5 px-3">Amount</th>
-                  <th className="py-2.5 px-3">Reason</th>
+                  <th className="py-2.5 px-3">Policy Violation Type</th>
+                  <th className="py-2.5 px-3">Justification</th>
                   <th className="py-2.5 px-3">Timestamp</th>
                 </tr>
               </thead>
@@ -432,12 +898,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                   <tr key={log.id} className="hover:bg-white/5 transition-colors">
                     <td className="py-3 px-3 font-mono-numbers text-gray-400">{log.id}</td>
                     <td className="py-3 px-3 font-mono-numbers font-bold text-amber-300">{log.adminId}</td>
-                    <td className="py-3 px-3 font-mono-numbers text-white">{log.targetUserId}</td>
-                    <td className="py-3 px-3 font-bold text-[#f5d061]">{log.action}</td>
-                    <td className="py-3 px-3 font-mono-numbers font-semibold text-emerald-400">
-                      {log.amount !== undefined ? `₹${log.amount}` : '-'}
+                    <td className="py-3 px-3 font-mono-numbers text-white font-bold">{log.targetUserId}</td>
+                    <td className="py-3 px-3">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                          log.action.includes('BLOCK')
+                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                            : log.action.includes('FREEZE')
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                            : log.action.includes('SUSPEND')
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : log.action.includes('GRANT')
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : 'bg-gray-800 text-gray-300 border border-gray-700'
+                        }`}
+                      >
+                        {log.action}
+                      </span>
                     </td>
-                    <td className="py-3 px-3 text-gray-300 text-[11px]">{log.reason}</td>
+                    <td className="py-3 px-3 text-[11px] font-semibold text-gray-300">
+                      {log.policyViolationType || '-'}
+                    </td>
+                    <td className="py-3 px-3 text-gray-300 text-[11px] max-w-xs">{log.reason}</td>
                     <td className="py-3 px-3 text-gray-500 font-mono-numbers text-[11px]">{log.timestamp}</td>
                   </tr>
                 ))}
@@ -447,15 +929,96 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
         </div>
       )}
 
-      {/* Tab 3: Deposit Queue */}
+      {/* Tab 4: System Prompt & Directive */}
+      {activeTab === 'prompt' && (
+        <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-6 shadow-xl space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#242c3d] pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <FileCode className="w-6 h-6 text-amber-400" />
+                <h3 className="font-cinzel text-lg font-black text-white">
+                  Bityora Gaming Platform System Prompt &amp; Operational Directive
+                </h3>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Official protocol governing Unique User ID generation, Connected Game Account linking, anti-fraud surveillance, and administrator sovereign enforcement.
+              </p>
+            </div>
+
+            <button
+              onClick={copyPromptText}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition-all shrink-0 cursor-pointer"
+            >
+              {promptCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              <span>{promptCopied ? 'Directive Copied!' : 'Copy System Directive'}</span>
+            </button>
+          </div>
+
+          {/* Directive Sections */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-[#121622] border border-[#242c3d] p-4 rounded-xl space-y-2">
+              <span className="text-[10px] text-amber-400 uppercase font-black tracking-wider block">
+                Rule 1: Unique User Identification
+              </span>
+              <p className="text-xs text-gray-300">
+                Every registered user on Bityora automatically receives a permanent Unique User ID (<span className="font-mono-numbers text-[#f5d061] font-bold">BIT-XXXXXX</span>). It is mapped directly to their authentication record and persists across all gameplay sessions and transactions.
+              </p>
+            </div>
+
+            <div className="bg-[#121622] border border-[#242c3d] p-4 rounded-xl space-y-2">
+              <span className="text-[10px] text-cyan-400 uppercase font-black tracking-wider block">
+                Rule 2: Direct Connected Game Account Linking
+              </span>
+              <p className="text-xs text-gray-300">
+                The Unique User ID links directly to a Connected Game Account (<span className="font-mono-numbers text-cyan-300 font-bold">BTY-GAME-XXXXXX</span>). All wagers, multipliers, and rounds are bound to this account, enabling live telemetry and session surveillance.
+              </p>
+            </div>
+
+            <div className="bg-[#121622] border border-[#242c3d] p-4 rounded-xl space-y-2">
+              <span className="text-[10px] text-emerald-400 uppercase font-black tracking-wider block">
+                Rule 3: In-Game Activity Surveillance
+              </span>
+              <p className="text-xs text-gray-300">
+                Administrators continuously monitor in-game telemetry including betting velocity, high multiplier surges (&ge;20x), large wager spikes, and concurrent sessions to proactively identify illicit behavior.
+              </p>
+            </div>
+
+            <div className="bg-[#121622] border border-[#242c3d] p-4 rounded-xl space-y-2">
+              <span className="text-[10px] text-red-400 uppercase font-black tracking-wider block">
+                Rule 4: Sovereign Administrative Authority
+              </span>
+              <p className="text-xs text-gray-300">
+                The administrator holds full authority to track any user, enforce <span className="text-cyan-300 font-bold">FREEZE</span> (asset &amp; betting lock), <span className="text-amber-400 font-bold">SUSPEND</span> (temporary lockout), or <span className="text-red-400 font-bold">BLOCK</span> (permanent ban) on accounts violating platform policies.
+              </p>
+            </div>
+          </div>
+
+          {/* Full Markdown Preview */}
+          <div className="bg-[#0b0e14] border border-[#242c3d] p-4 rounded-xl text-xs font-mono text-gray-300 space-y-2 max-h-80 overflow-y-auto">
+            <p className="text-amber-400 font-bold"># BITYORA GAMING PLATFORM — SYSTEM PROMPT &amp; OPERATIONAL DIRECTIVE</p>
+            <p className="text-gray-400">**Document Version:** 2.4.0-PROD | **Authority:** Governance Directorate</p>
+            <p className="text-gray-300">
+              Every registered user receives a permanent unique user ID (BIT-XXXXXX) mapped 1:1 with their Firebase Auth UID and direct connected game account (BTY-GAME-XXXXXX).
+            </p>
+            <p className="text-gray-300">
+              Admins possess sovereign authority to track, freeze, suspend, or permanently terminate accounts violating integrity standards.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 5: Deposit Demo Queue */}
       {activeTab === 'deposits' && (
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-5 shadow-xl space-y-4">
-          <h3 className="font-cinzel text-base font-bold text-white">
-            Demo Deposit Requests Queue
-          </h3>
-          <p className="text-xs text-gray-400">
-            Review simulated user deposit requests. Approvals automatically add virtual credits up to the strict ₹5,000 ceiling.
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-cinzel text-base font-bold text-white">Deposit Verification Queue</h3>
+              <p className="text-xs text-gray-400">Review, verify, and approve/reject manual QR deposit submissions.</p>
+            </div>
+            <span className="text-xs font-mono-numbers text-amber-400 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/20">
+              {depositRequests.length} Total Requests
+            </span>
+          </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -466,49 +1029,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                   <th className="py-2.5 px-3">Amount</th>
                   <th className="py-2.5 px-3">Reference No</th>
                   <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3">Created</th>
+                  <th className="py-2.5 px-3">Submitted At</th>
                   <th className="py-2.5 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1e2535]">
                 {depositRequests.map(r => (
                   <tr key={r.id} className="hover:bg-white/5 transition-colors">
-                    <td className="py-3 px-3 font-mono-numbers font-bold text-white">{r.id}</td>
-                    <td className="py-3 px-3 text-gray-300">{r.username} ({r.userId})</td>
-                    <td className="py-3 px-3 font-mono-numbers font-bold text-[#f5d061]">₹{r.amount}</td>
-                    <td className="py-3 px-3 font-mono-numbers text-gray-400">{r.referenceNo}</td>
+                    <td className="py-3 px-3 font-mono-numbers text-gray-400">{r.id}</td>
+                    <td className="py-3 px-3">
+                      <p className="font-bold text-white">{r.username}</p>
+                      <p className="font-mono-numbers text-[10px] text-[#f5d061]">{r.userId}</p>
+                    </td>
+                    <td className="py-3 px-3 font-mono-numbers font-bold text-emerald-400">
+                      ₹{r.amount.toLocaleString('en-IN')}
+                    </td>
+                    <td className="py-3 px-3 font-mono-numbers text-gray-300">{r.referenceNo}</td>
                     <td className="py-3 px-3">
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           r.status === 'APPROVED'
-                            ? 'bg-emerald-500/20 text-emerald-300'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                             : r.status === 'REJECTED'
-                            ? 'bg-red-500/20 text-red-300'
-                            : 'bg-amber-500/20 text-amber-300'
+                            ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                         }`}
                       >
                         {r.status}
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-gray-500 font-mono-numbers text-[11px]">{r.createdAt}</td>
+                    <td className="py-3 px-3 text-gray-500 text-[11px]">{r.createdAt}</td>
                     <td className="py-3 px-3 text-right">
-                      {r.status === 'PENDING' ? (
-                        <div className="flex items-center justify-end gap-2">
+                      {r.status === 'PENDING' && (
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => adminProcessDepositRequest(r.id, 'APPROVE')}
-                            className="px-2.5 py-1 rounded bg-emerald-600/30 text-emerald-300 hover:bg-emerald-600/50 font-bold text-[11px] border border-emerald-500/30"
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/40 border border-emerald-500/30 text-[11px] font-bold"
                           >
                             Approve
                           </button>
                           <button
-                            onClick={() => adminProcessDepositRequest(r.id, 'REJECT', 'Declined in admin demo review')}
-                            className="px-2.5 py-1 rounded bg-red-600/30 text-red-300 hover:bg-red-600/50 font-bold text-[11px] border border-red-500/30"
+                            onClick={() => adminProcessDepositRequest(r.id, 'REJECT', 'Declined in supervisor review')}
+                            className="px-2.5 py-1 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/40 border border-red-500/30 text-[11px] font-bold"
                           >
                             Reject
                           </button>
                         </div>
-                      ) : (
-                        <span className="text-[10px] text-gray-500">Processed</span>
                       )}
                     </td>
                   </tr>
@@ -519,301 +1085,540 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
         </div>
       )}
 
-      {/* Tab 4: Owner Payment QR Scanner */}
+      {/* Tab 6: Owner Payment QR Scanner */}
       {activeTab === 'scanner' && (
-        <div className="space-y-6">
-          <div className="bg-[#0e121a] border border-[#d4af37]/40 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-amber-500/10 via-transparent to-transparent pointer-events-none" />
+        <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-6 shadow-xl space-y-6">
+          <div>
+            <h3 className="font-cinzel text-base font-bold text-white flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-amber-400" />
+              Owner Payment QR Scanner Control
+            </h3>
+            <p className="text-xs text-gray-400 mt-1">
+              Configure the master UPI scanner image displayed to players across all top-up modals.
+            </p>
+          </div>
 
-            <div className="flex flex-col lg:flex-row items-start justify-between gap-6">
-              <div className="space-y-2 max-w-xl">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
-                  <Shield className="w-3.5 h-3.5" />
-                  Restricted RBAC Section: Platform Owner / Administrator Only
-                </div>
-                <h2 className="font-cinzel text-2xl font-black text-white">
-                  Owner Payment Scanner & Official QR Hub
-                </h2>
-                <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
-                  Manage the official payment scanner photo shown to all users inside the Deposit Cashier. 
-                  Any change made here updates dynamically in real-time across the deposit portal.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <span className="text-xs px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold flex items-center gap-1.5">
-                  <CheckCircle className="w-4 h-4" />
-                  AUTHENTICATED AS OWNER ({currentUser.id})
-                </span>
-              </div>
-            </div>
-
-            {scannerSuccessMsg && (
-              <div className="mt-4 p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center justify-between">
-                <span>{scannerSuccessMsg}</span>
-                <button onClick={() => setScannerSuccessMsg(null)} className="text-emerald-300 hover:text-white">
-                  <X className="w-4 h-4" />
+          <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-xl bg-[#121622] border border-[#242c3d]">
+            <img
+              src={ownerPaymentQr || 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=bitora.casino@upi'}
+              alt="Active Owner Payment QR"
+              className="w-36 h-36 rounded-xl border border-amber-500/40 object-cover bg-white p-1"
+            />
+            <div className="space-y-2 flex-1">
+              <span className="text-xs font-bold text-white block">Current Scanner Configuration</span>
+              <p className="text-xs text-gray-400">
+                Status: <span className="text-emerald-400 font-bold">{ownerPaymentQr ? 'Custom Image Active' : 'Default Platform QR'}</span>
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Paste direct image URL for new QR scanner..."
+                  value={newQrInputUrl}
+                  onChange={e => setNewQrInputUrl(e.target.value)}
+                  className="flex-1 bg-[#0b0e14] border border-[#242c3d] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#d4af37]"
+                />
+                <button
+                  onClick={() => {
+                    if (newQrInputUrl.trim()) {
+                      updateOwnerPaymentQr(newQrInputUrl.trim());
+                      setScannerSuccessMsg('Master QR scanner successfully updated!');
+                      setTimeout(() => setScannerSuccessMsg(null), 3000);
+                      setNewQrInputUrl('');
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors shrink-0"
+                >
+                  Update QR
                 </button>
               </div>
-            )}
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-8">
-              {/* Left Column: Live Preview in Cashier Simulation */}
-              <div className="lg:col-span-5 bg-[#121622] border border-[#242c3d] rounded-2xl p-5 flex flex-col items-center text-center">
-                <div className="w-full flex items-center justify-between text-xs text-gray-400 pb-3 border-b border-[#242c3d] mb-4">
-                  <span className="font-semibold text-gray-300 flex items-center gap-1.5">
-                    <Eye className="w-4 h-4 text-amber-400" />
-                    Deposit Portal Live Preview
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-[#1e2535] text-amber-300 font-mono-numbers">
-                    {ownerPaymentQr ? 'CUSTOM PHOTO ACTIVE' : 'SYSTEM DEFAULT QR'}
-                  </span>
-                </div>
-
-                {/* QR Display Card */}
-                <div className="p-4 rounded-2xl bg-gradient-to-b from-[#182030] to-[#0d121c] border-2 border-dashed border-[#d4af37]/40 shadow-inner flex flex-col items-center max-w-[280px]">
-                  <div className="w-56 h-56 rounded-xl overflow-hidden bg-white p-2 shadow-2xl flex items-center justify-center">
-                    {ownerPaymentQr ? (
-                      <img
-                        src={ownerPaymentQr}
-                        alt="Owner Official Deposit QR"
-                        className="w-full h-full object-contain"
-                      />
-                    ) : (
-                      <img
-                        src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi%3A%2F%2Fpay%3Fpa%3Dbitora.vip%40axl%26pn%3DBITORA%2520ROYAL%2520CLUB%26mc%3D7995%26mode%3D02%26purpose%3D00&color=1a162b"
-                        alt="Default Bitora VIP Scanner"
-                        className="w-full h-full object-contain"
-                      />
-                    )}
-                  </div>
-
-                  {/* Strict Caption */}
-                  <div className="mt-4 p-3 rounded-xl bg-black/40 border border-[#242c3d] w-full text-center">
-                    <p className="text-[11px] font-bold text-amber-300 leading-snug">
-                      Scan this QR for more money and complete your payment within 10 minutes.
-                    </p>
-                  </div>
-
-                  <div className="mt-2 text-[10px] text-gray-400 flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-amber-400" />
-                    10-Min Clearance Delay Protocol Active
-                  </div>
-                </div>
-
-                <div className="mt-4 text-[11px] text-gray-400">
-                  Visible to players on all 7 preset deposit tiers (₹110, ₹200, ₹400, ₹800, ₹1,000, ₹1,600, ₹5,000).
-                </div>
-              </div>
-
-              {/* Right Column: Update Controls & Security Specifications */}
-              <div className="lg:col-span-7 space-y-5">
-                {/* Method 1: Upload File */}
-                <div className="bg-[#121622] border border-[#242c3d] rounded-2xl p-5 space-y-3">
-                  <div className="flex items-center gap-2 text-white font-bold text-sm">
-                    <Upload className="w-4 h-4 text-amber-400" />
-                    Option 1: Upload QR Photo From Device
-                  </div>
-                  <p className="text-xs text-gray-400">
-                    Upload your UPI QR code, payment screenshot, or company barcode directly from your device.
-                  </p>
-                  <label className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl font-bold text-black bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:from-[#f5d061] hover:to-[#d4af37] cursor-pointer shadow-lg transition-all text-xs active:scale-98">
-                    <Upload className="w-4 h-4" />
-                    <span>Choose Image File (JPG, PNG, WebP)</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            if (typeof reader.result === 'string') {
-                              const ok = updateOwnerPaymentQr(reader.result);
-                              if (ok) {
-                                setScannerSuccessMsg('Official Owner QR scanner photo updated successfully!');
-                              }
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-
-                {/* Method 2: Dynamic Image URL */}
-                <div className="bg-[#121622] border border-[#242c3d] rounded-2xl p-5 space-y-3">
-                  <div className="flex items-center gap-2 text-white font-bold text-sm">
-                    <ImageIcon className="w-4 h-4 text-amber-400" />
-                    Option 2: Dynamic Cloud Image URL
-                  </div>
-                  <p className="text-xs text-gray-400">
-                    Paste an image URL hosted on AWS S3, Cloudinary, Imgur, or your custom CDN.
-                  </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="url"
-                      placeholder="https://your-domain.com/official-qr.png"
-                      value={newQrInputUrl}
-                      onChange={(e) => setNewQrInputUrl(e.target.value)}
-                      className="flex-1 bg-[#0e121a] border border-[#242c3d] rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-[#d4af37]"
-                    />
-                    <button
-                      onClick={() => {
-                        if (!newQrInputUrl.trim()) return;
-                        const ok = updateOwnerPaymentQr(newQrInputUrl.trim());
-                        if (ok) {
-                          setScannerSuccessMsg('Owner payment QR updated via remote URL!');
-                          setNewQrInputUrl('');
-                        }
-                      }}
-                      disabled={!newQrInputUrl.trim()}
-                      className="px-4 py-2 rounded-xl text-xs font-bold text-black bg-[#f5d061] hover:bg-white transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                    >
-                      Apply URL
-                    </button>
-                  </div>
-                </div>
-
-                {/* Reset to Default */}
-                <div className="bg-[#121622] border border-[#242c3d] rounded-2xl p-5 flex items-center justify-between gap-4">
-                  <div>
-                    <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <RefreshCw className="w-3.5 h-3.5 text-gray-400" />
-                      Restore System Default VIP QR
-                    </h4>
-                    <p className="text-[11px] text-gray-400">
-                      Clears custom photo and reverts deposit cashier back to the standard BITORA Gold VIP QR.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      updateOwnerPaymentQr('');
-                      setScannerSuccessMsg('Reset to system default VIP QR scanner photo.');
-                    }}
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold text-gray-300 hover:text-white bg-[#1e2535] hover:bg-[#283248] border border-[#2d374d] transition-all cursor-pointer whitespace-nowrap"
-                  >
-                    Reset Default
-                  </button>
-                </div>
-
-                {/* Security & Access Policies Overview */}
-                <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 text-xs space-y-2">
-                  <div className="flex items-center gap-2 text-amber-400 font-bold">
-                    <Lock className="w-3.5 h-3.5" />
-                    Role-Based Access Control (RBAC) Policy Details
-                  </div>
-                  <ul className="text-[11px] text-gray-400 space-y-1 list-disc list-inside">
-                    <li>Strict Authorization: Only accounts with <span className="text-amber-300 font-semibold">role = 'admin'</span> or holders of the Master Owner PIN can replace this photo.</li>
-                    <li>Tamper Resistance: Unauthorized client requests to modify the scanner are rejected and logged.</li>
-                    <li>Cashier Persistence: Stored in high-priority browser storage with offline failover.</li>
-                  </ul>
-                </div>
-              </div>
+              {scannerSuccessMsg && <p className="text-xs text-emerald-400 font-bold">{scannerSuccessMsg}</p>}
             </div>
           </div>
         </div>
       )}
 
-      {/* Credit Grant / Deduct Modal */}
-      {selectedUserForAction && actionType && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-md bg-[#0e121a] border border-[#d4af37]/40 rounded-3xl p-6 shadow-2xl space-y-4">
+      {/* MODAL 1: SOVEREIGN STATUS CHANGE (Freeze, Suspend, Block, Reactivate) */}
+      {actionType === 'STATUS_CHANGE' && selectedUserForAction && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0e121a] border-2 border-amber-500/50 rounded-3xl p-6 w-full max-w-lg shadow-2xl relative space-y-5 animate-scaleUp">
             <button
               onClick={() => {
                 setSelectedUserForAction(null);
                 setActionType(null);
+                setFeedback(null);
               }}
-              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white"
+              className="absolute top-5 right-5 text-gray-400 hover:text-white"
             >
               <X className="w-5 h-5" />
             </button>
 
             <div className="flex items-center gap-3">
-              <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                  actionType === 'GRANT'
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                    : 'bg-red-500/20 text-red-400 border border-red-500/40'
-                }`}
-              >
-                {actionType === 'GRANT' ? <PlusCircle className="w-5 h-5" /> : <MinusCircle className="w-5 h-5" />}
+              <div className="w-12 h-12 rounded-2xl bg-red-500/15 border border-red-500/40 flex items-center justify-center text-red-400">
+                <ShieldAlert className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-cinzel text-lg font-bold text-white">
-                  {actionType === 'GRANT' ? 'Grant Virtual Credits' : 'Deduct Virtual Credits'}
+                <h3 className="font-cinzel text-lg font-black text-white">
+                  Executive Authority Enforcement
                 </h3>
                 <p className="text-xs text-gray-400">
-                  Target: {selectedUserForAction.username} ({selectedUserForAction.id})
+                  Target User: <span className="font-mono-numbers text-[#f5d061] font-bold">{selectedUserForAction.id}</span> ({selectedUserForAction.username})
+                </p>
+                <p className="text-[11px] text-cyan-300 font-mono-numbers">
+                  Game Account: {selectedUserForAction.gameAccountId}
                 </p>
               </div>
             </div>
 
-            <div className="bg-[#121622] rounded-xl p-3 border border-[#242c3d] text-xs space-y-1">
-              <div className="flex justify-between text-gray-400">
-                <span>Current Balance:</span>
-                <span className="font-mono-numbers font-bold text-white">
-                  ₹{selectedUserForAction.balance.toLocaleString('en-IN')}
-                </span>
-              </div>
-              <div className="flex justify-between text-gray-400">
-                <span>Maximum Allowed:</span>
-                <span className="font-mono-numbers font-bold text-[#f5d061]">₹5,000 Cap</span>
-              </div>
-            </div>
-
-            <form onSubmit={handleExecuteAdjustment} className="space-y-3">
+            <form onSubmit={handleExecuteStatusChange} className="space-y-4 text-xs">
+              {/* Select Status */}
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Credit Amount (₹):
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={5000}
-                  value={adjustAmount}
-                  onChange={e => setAdjustAmount(parseInt(e.target.value, 10) || 0)}
-                  className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3.5 py-2 text-xs font-mono-numbers text-white focus:outline-none focus:border-[#d4af37]"
-                />
+                <label className="text-gray-300 font-semibold block mb-1.5">Enforcement Action Tier:</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTargetNewStatus('ACTIVE')}
+                    className={`p-2.5 rounded-xl border text-center transition-all ${
+                      targetNewStatus === 'ACTIVE'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/60 font-bold'
+                        : 'bg-[#121622] text-gray-400 border-[#242c3d]'
+                    }`}
+                  >
+                    ✓ ACTIVE
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTargetNewStatus('FROZEN')}
+                    className={`p-2.5 rounded-xl border text-center transition-all ${
+                      targetNewStatus === 'FROZEN'
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/60 font-bold'
+                        : 'bg-[#121622] text-gray-400 border-[#242c3d]'
+                    }`}
+                  >
+                    ❄ FREEZE
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTargetNewStatus('SUSPENDED')}
+                    className={`p-2.5 rounded-xl border text-center transition-all ${
+                      targetNewStatus === 'SUSPENDED'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 font-bold'
+                        : 'bg-[#121622] text-gray-400 border-[#242c3d]'
+                    }`}
+                  >
+                    ⏳ SUSPEND
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTargetNewStatus('BLOCKED')}
+                    className={`p-2.5 rounded-xl border text-center transition-all ${
+                      targetNewStatus === 'BLOCKED'
+                        ? 'bg-red-500/20 text-red-400 border-red-500/60 font-bold'
+                        : 'bg-[#121622] text-gray-400 border-[#242c3d]'
+                    }`}
+                  >
+                    🚫 BLOCK
+                  </button>
+                </div>
               </div>
 
+              {/* Policy Violation Category */}
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Audit Reason (Official Log):
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. VIP goodwill bonus / testing adjustment"
-                  value={adjustReason}
-                  onChange={e => setAdjustReason(e.target.value)}
-                  className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-[#d4af37]"
+                <label className="text-gray-300 font-semibold block mb-1">Policy Violation Category:</label>
+                <select
+                  value={violationType}
+                  onChange={e => setViolationType(e.target.value)}
+                  className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#d4af37]"
+                >
+                  <option value="Botting / Automation">Botting / Automated Gameplay Script</option>
+                  <option value="Rapid Betting Velocity">Rapid Betting Velocity (&gt;15 bets/min)</option>
+                  <option value="Exploit Attempt">Game State Exploit Attempt</option>
+                  <option value="Multi-Accounting">Multi-Accounting / Sybil Activity</option>
+                  <option value="Payment / Arbitrage Fraud">Payment / Arbitrage Turnover Abuse</option>
+                  <option value="Terms of Service Violation">Severe Terms of Service Section 8 Violation</option>
+                  <option value="Routine Compliance Check">Routine Anti-Fraud Compliance Verification</option>
+                </select>
+              </div>
+
+              {/* Suspension Duration if suspended */}
+              {targetNewStatus === 'SUSPENDED' && (
+                <div>
+                  <label className="text-gray-300 font-semibold block mb-1">Suspension Period (Hours):</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={720}
+                    value={suspensionHours}
+                    onChange={e => setSuspensionHours(Number(e.target.value))}
+                    className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-2 text-white font-mono-numbers focus:outline-none focus:border-[#d4af37]"
+                  />
+                </div>
+              )}
+
+              {/* Justification Reason */}
+              <div>
+                <label className="text-gray-300 font-semibold block mb-1">Official Supervisor Reason / Notice to User:</label>
+                <textarea
+                  rows={3}
+                  value={statusReason}
+                  onChange={e => setStatusReason(e.target.value)}
+                  placeholder="Explain the illicit behavior or policy violation justification..."
+                  className="w-full bg-[#121622] border border-[#242c3d] rounded-xl p-3 text-white focus:outline-none focus:border-[#d4af37]"
+                  required
                 />
               </div>
 
               {feedback && (
                 <div
-                  className={`p-2.5 rounded-xl text-xs font-semibold ${
+                  className={`p-3 rounded-xl text-xs font-bold ${
                     feedback.type === 'success'
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                      : 'bg-red-500/20 text-red-400 border border-red-500/30'
                   }`}
                 >
                   {feedback.text}
                 </div>
               )}
 
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedUserForAction(null);
+                    setActionType(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-bold transition-all shadow-lg"
+                >
+                  Execute Status Transition
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: USER IN-GAME ACTIVITY INSPECTOR */}
+      {actionType === 'INSPECT_ACTIVITY' && selectedUserForAction && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0e121a] border-2 border-cyan-500/40 rounded-3xl p-6 w-full max-w-2xl shadow-2xl relative space-y-5 max-h-[90vh] flex flex-col">
+            <button
+              onClick={() => {
+                setSelectedUserForAction(null);
+                setActionType(null);
+              }}
+              className="absolute top-5 right-5 text-gray-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
+                <Gamepad2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-cinzel text-lg font-black text-white">
+                  User In-Game Activity &amp; Account Telemetry
+                </h3>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="font-mono-numbers text-xs font-bold text-[#f5d061]">
+                    {selectedUserForAction.id}
+                  </span>
+                  <span className="text-gray-500">&bull;</span>
+                  <span className="font-mono-numbers text-xs text-cyan-300">
+                    {selectedUserForAction.gameAccountId}
+                  </span>
+                  <span className="text-gray-500">&bull;</span>
+                  <span className="text-xs text-gray-300">{selectedUserForAction.username}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Stats Grid */}
+            <div className="grid grid-cols-4 gap-2 text-xs">
+              <div className="bg-[#121622] p-3 rounded-xl border border-[#242c3d]">
+                <span className="text-[10px] text-gray-400 block uppercase">Total Wagered</span>
+                <span className="font-mono-numbers font-bold text-white text-sm">
+                  ₹{selectedUserForAction.totalWagered.toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div className="bg-[#121622] p-3 rounded-xl border border-[#242c3d]">
+                <span className="text-[10px] text-gray-400 block uppercase">Total Won</span>
+                <span className="font-mono-numbers font-bold text-emerald-400 text-sm">
+                  ₹{selectedUserForAction.totalWon.toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div className="bg-[#121622] p-3 rounded-xl border border-[#242c3d]">
+                <span className="text-[10px] text-gray-400 block uppercase">Risk Tier</span>
+                <span className="font-bold text-amber-300 text-sm">
+                  {selectedUserForAction.riskLevel}
+                </span>
+              </div>
+              <div className="bg-[#121622] p-3 rounded-xl border border-[#242c3d]">
+                <span className="text-[10px] text-gray-400 block uppercase">Account Status</span>
+                <span className="font-bold text-cyan-300 text-sm">
+                  {selectedUserForAction.accountStatus}
+                </span>
+              </div>
+            </div>
+
+            {/* Activity Rounds Table */}
+            <div className="flex-1 overflow-y-auto border border-[#242c3d] rounded-xl">
+              {gameHistory.filter(g => g.userId === selectedUserForAction.id).length === 0 ? (
+                <div className="p-8 text-center text-gray-400 text-xs">
+                  No registered in-game rounds found for this account yet.
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[#242c3d] text-gray-400 uppercase font-mono-numbers text-[10px] bg-[#121622]">
+                      <th className="py-2 px-3">Time</th>
+                      <th className="py-2 px-3">Game</th>
+                      <th className="py-2 px-3">Wager</th>
+                      <th className="py-2 px-3">Multiplier</th>
+                      <th className="py-2 px-3">Profit</th>
+                      <th className="py-2 px-3">Anomaly</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1e2535]">
+                    {gameHistory
+                      .filter(g => g.userId === selectedUserForAction.id)
+                      .map(g => (
+                        <tr key={g.id} className="hover:bg-white/5">
+                          <td className="py-2.5 px-3 font-mono-numbers text-gray-400 text-[11px]">{g.timestamp}</td>
+                          <td className="py-2.5 px-3 font-bold text-white">{g.gameName}</td>
+                          <td className="py-2.5 px-3 font-mono-numbers text-gray-300">₹{g.wager}</td>
+                          <td className="py-2.5 px-3 font-mono-numbers text-amber-300">{g.multiplier.toFixed(2)}x</td>
+                          <td className="py-2.5 px-3 font-mono-numbers font-bold">
+                            {g.profit >= 0 ? (
+                              <span className="text-emerald-400">+₹{g.profit}</span>
+                            ) : (
+                              <span className="text-red-400">-₹{Math.abs(g.profit)}</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            {g.riskFlag ? (
+                              <span className="text-[10px] font-bold text-red-400">⚠️ {g.riskFlag}</span>
+                            ) : (
+                              <span className="text-[10px] text-gray-500">Normal</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
               <button
-                type="submit"
-                className={`w-full py-3 rounded-xl font-bold text-black uppercase tracking-wider text-xs transition-all cursor-pointer ${
+                onClick={() => {
+                  setActionType('STATUS_CHANGE');
+                  setTargetNewStatus(selectedUserForAction.accountStatus === 'ACTIVE' ? 'FROZEN' : 'ACTIVE');
+                  setStatusReason(selectedUserForAction.statusReason || '');
+                }}
+                className="px-4 py-2 rounded-xl bg-red-600/20 text-red-300 border border-red-500/30 text-xs font-bold hover:bg-red-600/30 transition-colors"
+              >
+                Change Account Status
+              </button>
+
+              <button
+                onClick={() => {
+                  setSelectedUserForAction(null);
+                  setActionType(null);
+                }}
+                className="px-5 py-2 rounded-xl bg-gray-800 text-gray-300 font-bold text-xs hover:bg-gray-700 transition-colors"
+              >
+                Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: FLAG ILLICIT BEHAVIOR */}
+      {actionType === 'FLAG_VIOLATION' && selectedUserForAction && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0e121a] border-2 border-orange-500/50 rounded-3xl p-6 w-full max-w-md shadow-2xl relative space-y-4">
+            <button
+              onClick={() => {
+                setSelectedUserForAction(null);
+                setActionType(null);
+                setFeedback(null);
+              }}
+              className="absolute top-5 right-5 text-gray-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-orange-500/15 border border-orange-500/40 flex items-center justify-center text-orange-400">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-cinzel text-base font-black text-white">Flag Policy Violation</h3>
+                <p className="text-xs text-gray-400">Target User: {selectedUserForAction.id}</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleExecuteFlagViolation} className="space-y-3 text-xs">
+              <div>
+                <label className="text-gray-300 font-semibold block mb-1">Violation Tag / Signature:</label>
+                <select
+                  value={flagTag}
+                  onChange={e => setFlagTag(e.target.value)}
+                  className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#d4af37]"
+                >
+                  <option value="Unusual betting velocity (>15 bets/min)">Unusual betting velocity (&gt;15 bets/min)</option>
+                  <option value="Multi-tab concurrent play">Multi-tab concurrent play</option>
+                  <option value="Rapid multiplier withdrawal spike">Rapid multiplier withdrawal spike</option>
+                  <option value="Client state manipulation attempt">Client state manipulation attempt</option>
+                  <option value="Cyclic deposit/cashout arbitrage">Cyclic deposit/cashout arbitrage</option>
+                  <option value="Suspicious device fingerprint">Suspicious device fingerprint</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-gray-300 font-semibold block mb-1">Investigation Notes:</label>
+                <textarea
+                  rows={2}
+                  value={flagDetails}
+                  onChange={e => setFlagDetails(e.target.value)}
+                  placeholder="Additional audit notes..."
+                  className="w-full bg-[#121622] border border-[#242c3d] rounded-xl p-3 text-white focus:outline-none focus:border-[#d4af37]"
+                />
+              </div>
+
+              {feedback && (
+                <div
+                  className={`p-2.5 rounded-xl text-xs font-bold ${
+                    feedback.type === 'success'
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-red-500/20 text-red-400'
+                  }`}
+                >
+                  {feedback.text}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedUserForAction(null);
+                    setActionType(null);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-gray-800 text-gray-300 font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold transition-colors"
+                >
+                  Add Violation Tag
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: CREDIT GRANT / DEDUCT */}
+      {(actionType === 'GRANT' || actionType === 'DEDUCT') && selectedUserForAction && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0e121a] border-2 border-amber-500/40 rounded-3xl p-6 w-full max-w-md shadow-2xl relative space-y-4">
+            <button
+              onClick={() => {
+                setSelectedUserForAction(null);
+                setActionType(null);
+                setFeedback(null);
+              }}
+              className="absolute top-5 right-5 text-gray-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-11 h-11 rounded-xl flex items-center justify-center ${
                   actionType === 'GRANT'
-                    ? 'bg-gradient-to-r from-emerald-400 to-emerald-500 hover:from-emerald-300'
-                    : 'bg-gradient-to-r from-red-400 to-red-500 hover:from-red-300'
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-red-500/15 text-red-400 border border-red-500/30'
                 }`}
               >
-                Confirm {actionType === 'GRANT' ? 'Credit Grant' : 'Credit Deduction'}
-              </button>
+                {actionType === 'GRANT' ? <PlusCircle className="w-6 h-6" /> : <MinusCircle className="w-6 h-6" />}
+              </div>
+              <div>
+                <h3 className="font-cinzel text-base font-black text-white">
+                  {actionType === 'GRANT' ? 'Grant Virtual Credits' : 'Deduct Virtual Credits'}
+                </h3>
+                <p className="text-xs text-gray-400">Target User: {selectedUserForAction.id} ({selectedUserForAction.username})</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleExecuteAdjustment} className="space-y-3 text-xs">
+              <div>
+                <label className="text-gray-300 font-semibold block mb-1">Credit Amount (₹):</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={adjustAmount}
+                  onChange={e => setAdjustAmount(Number(e.target.value))}
+                  className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-2 text-white font-mono-numbers font-bold text-sm focus:outline-none focus:border-[#d4af37]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-300 font-semibold block mb-1">Justification Reason:</label>
+                <input
+                  type="text"
+                  value={adjustReason}
+                  onChange={e => setAdjustReason(e.target.value)}
+                  placeholder="Supervisor rationale..."
+                  className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#d4af37]"
+                />
+              </div>
+
+              {feedback && (
+                <div
+                  className={`p-2.5 rounded-xl text-xs font-bold ${
+                    feedback.type === 'success'
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-red-500/20 text-red-400'
+                  }`}
+                >
+                  {feedback.text}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedUserForAction(null);
+                    setActionType(null);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-gray-800 text-gray-300 font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={`px-4 py-1.5 rounded-xl font-bold transition-colors text-white ${
+                    actionType === 'GRANT'
+                      ? 'bg-emerald-600 hover:bg-emerald-500'
+                      : 'bg-red-600 hover:bg-red-500'
+                  }`}
+                >
+                  Execute Adjustment
+                </button>
+              </div>
             </form>
           </div>
         </div>

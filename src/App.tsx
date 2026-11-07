@@ -14,6 +14,8 @@ import { DepositPortal } from './components/deposit/DepositPortal';
 import { WithdrawPortal } from './components/withdraw/WithdrawPortal';
 import { AuthLoginModal } from './components/auth/AuthLoginModal';
 import { AuthGate } from './components/auth/AuthGate';
+import { DailyCheckInModal } from './components/rewards/DailyCheckInModal';
+import { AccountRestrictionNotice } from './components/common/AccountRestrictionNotice';
 import {
   Shield,
   Coins,
@@ -35,6 +37,10 @@ function AppContent() {
     dismissDepositClearanceNotification,
     phoneBonusNotification,
     dismissPhoneBonusNotification,
+    dailyCheckInState,
+    claimDailyCheckIn,
+    isCheckInModalOpen,
+    setIsCheckInModalOpen,
   } = useGame();
   const [activeTab, setActiveTab] = useState<string>('home');
   const [cashierOpen, setCashierOpen] = useState<boolean>(false);
@@ -107,6 +113,9 @@ function AppContent() {
 
       {/* Main View Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 relative z-10">
+        {/* Account Restriction Notice (displays if account is Blocked, Frozen, or Suspended) */}
+        <AccountRestrictionNotice />
+
         {/* Google Sign-In 100 Credits Welcome Bonus Awarded Banner */}
         {phoneBonusNotification && (
           <div className="mb-6 rounded-3xl bg-gradient-to-r from-amber-500 via-[#f5d061] to-amber-500 p-0.5 shadow-[0_0_40px_rgba(245,208,97,0.5)] animate-in zoom-in-95 duration-300">
@@ -394,6 +403,15 @@ function AppContent() {
           onClose={() => setExportOpen(false)}
         />
       )}
+
+      {/* 7-Day Cyclical Progressive Daily Check-In Modal */}
+      <DailyCheckInModal
+        isOpen={isCheckInModalOpen}
+        onClose={() => setIsCheckInModalOpen(false)}
+        checkInState={dailyCheckInState}
+        onClaim={claimDailyCheckIn}
+        userBalance={currentUser?.balance || 0}
+      />
 
       {/* Premium Footer */}
       <footer className="mt-auto border-t border-[#242c3d] bg-[#05070a] text-gray-400 py-10 px-4 sm:px-6 lg:px-8">

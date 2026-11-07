@@ -1,13 +1,30 @@
 export type UserRole = 'player' | 'admin';
 
+export type UserAccountStatus = 'ACTIVE' | 'SUSPENDED' | 'FROZEN' | 'BLOCKED';
+
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export type GameSessionStatus = 'ONLINE' | 'IN_GAME' | 'IDLE' | 'OFFLINE';
+
 export interface User {
   id: string; // e.g. "BIT-782914"
+  gameAccountId: string; // Direct connected game account ID, e.g. "BTY-GAME-782914"
   username: string;
   email: string;
   phone?: string;
   role: UserRole;
   balance: number; // Max 5000, Min 0
-  isSuspended: boolean;
+  accountStatus: UserAccountStatus;
+  statusReason?: string;
+  statusUpdatedAt?: string;
+  suspensionExpiresAt?: string;
+  riskLevel: RiskLevel;
+  violationCount: number;
+  illicitActivityFlags: string[];
+  currentGame?: string;
+  gameSessionStatus: GameSessionStatus;
+  lastActivity?: string;
+  isSuspended: boolean; // Retained for backwards compatibility (true if accountStatus !== 'ACTIVE')
   vipTier: 'Bronze' | 'Silver' | 'Gold' | 'Diamond VIP';
   avatar: string;
   createdAt: string;
@@ -72,6 +89,8 @@ export type GameType =
 export interface GameRecord {
   id: string;
   userId: string;
+  gameAccountId?: string;
+  username?: string;
   game: GameType;
   gameName: string;
   wager: number;
@@ -81,6 +100,7 @@ export interface GameRecord {
   outcome: 'WIN' | 'LOSS';
   timestamp: string;
   details?: string;
+  riskFlag?: string;
 }
 
 export interface DepositRequest {
@@ -102,9 +122,21 @@ export interface AdminAuditLog {
   adminId: string;
   targetUserId: string;
   targetUsername: string;
-  action: 'GRANT_CREDITS' | 'DEDUCT_CREDITS' | 'SUSPEND_ACCOUNT' | 'UNSUSPEND_ACCOUNT' | 'APPROVE_PAYMENT' | 'REJECT_PAYMENT';
+  action:
+    | 'GRANT_CREDITS'
+    | 'DEDUCT_CREDITS'
+    | 'SUSPEND_ACCOUNT'
+    | 'UNSUSPEND_ACCOUNT'
+    | 'FREEZE_ACCOUNT'
+    | 'UNFREEZE_ACCOUNT'
+    | 'BLOCK_ACCOUNT'
+    | 'UNBLOCK_ACCOUNT'
+    | 'FLAG_VIOLATION'
+    | 'APPROVE_PAYMENT'
+    | 'REJECT_PAYMENT';
   amount?: number;
   reason: string;
+  policyViolationType?: string;
   timestamp: string;
 }
 
@@ -114,3 +146,21 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
 }
+
+export interface DailyCheckInReward {
+  day: number; // 1 to 7
+  credits: number; // Incremental for days 1-6, peaking at 6 on day 7
+  title: string;
+  badge?: string;
+  isPeak?: boolean;
+}
+
+export interface DailyCheckInState {
+  currentDay: number; // 1 to 7
+  lastClaimDate: string | null; // 'YYYY-MM-DD'
+  streak: number; // Current consecutive streak count
+  totalClaimedCredits: number;
+  hasClaimedToday: boolean;
+  nextRewardInHours?: number;
+}
+
