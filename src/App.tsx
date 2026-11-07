@@ -52,8 +52,8 @@ function AppContent() {
       setAuthModalDetails({
         title: gameTitle ? `MANDATORY AUTHENTICATION: PLAY ${gameTitle.toUpperCase()}` : 'SIGN IN OR REGISTER TO PLAY',
         subtitle: gameTitle
-          ? `You must sign in or register before you can access or play ${gameTitle}. Verified players receive a fixed 110 Credits Welcome Bonus!`
-          : 'Users must sign in or register before they can access or play any casino games. Claim 110 Credits upon sign in!',
+          ? `You must sign in or register before you can access or play ${gameTitle}. Verified players receive a fixed 100 Credits Welcome Bonus!`
+          : 'Users must sign in or register before they can access or play any casino games. Claim 100 Credits upon sign in!',
         requiredForGame: gameTitle,
         pendingTab: targetTab,
       });
@@ -107,7 +107,7 @@ function AppContent() {
 
       {/* Main View Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 relative z-10">
-        {/* Google Sign-In 110 Credits Welcome Bonus Awarded Banner */}
+        {/* Google Sign-In 100 Credits Welcome Bonus Awarded Banner */}
         {phoneBonusNotification && (
           <div className="mb-6 rounded-3xl bg-gradient-to-r from-amber-500 via-[#f5d061] to-amber-500 p-0.5 shadow-[0_0_40px_rgba(245,208,97,0.5)] animate-in zoom-in-95 duration-300">
             <div className="rounded-[22px] bg-gradient-to-r from-[#171204] via-[#221806] to-[#120d03] p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -122,7 +122,7 @@ function AppContent() {
                 </div>
                 <div>
                   <h3 className="font-cinzel text-base sm:text-lg font-black text-[#f5d061] flex items-center gap-2">
-                    <span>🎉 VIP WELCOME BONUS: 110 CREDITS CREDITED!</span>
+                    <span>🎉 VIP WELCOME BONUS: 100 CREDITS CREDITED!</span>
                     <span className="text-[10px] font-mono bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">
                       Verified
                     </span>

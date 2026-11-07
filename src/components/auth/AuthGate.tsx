@@ -41,7 +41,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
           </p>
         </div>
 
-        {/* Strict Security & Fixed 110 Credits Welcome Bonus Notice */}
+        {/* Strict Security & Fixed 100 Credits Welcome Bonus Notice */}
         <div className="p-4 rounded-3xl bg-gradient-to-r from-amber-500/15 via-[#f5d061]/20 to-amber-500/15 border-2 border-[#d4af37]/50 shadow-[0_0_30px_rgba(212,175,55,0.2)] space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -54,12 +54,12 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
                   <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                 </h3>
                 <p className="text-[11px] text-gray-200">
-                  New verified accounts are granted <strong className="text-white">exactly 110 credits</strong> upon initial sign-in.
+                  New verified accounts are granted <strong className="text-white">exactly 100 credits</strong> upon initial sign-in.
                 </p>
               </div>
             </div>
             <span className="font-mono-numbers font-black text-xs text-black bg-[#f5d061] px-2.5 py-1 rounded-xl shrink-0 shadow">
-              110 CREDITS
+              100 CREDITS
             </span>
           </div>
 

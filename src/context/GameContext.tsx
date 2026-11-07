@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { sounds } from '../utils/soundEffects';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
 
 interface GameContextType {
@@ -94,7 +95,7 @@ const DEFAULT_USERS: User[] = [
     email: 'aarav.vip@bitora.demo',
     phone: '+91 98765 43210',
     role: 'player',
-    balance: 110, // Fixed initial welcome bonus credits
+    balance: 100, // Fixed initial welcome bonus credits
     isSuspended: false,
     vipTier: 'Gold',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -566,7 +567,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email,
       phone: phone || '+91 98000 00000',
       role: 'player',
-      balance: 110, // Fixed initial welcome bonus of exactly 110 credits
+      balance: 100, // Fixed initial welcome bonus of exactly 100 credits
       isSuspended: false,
       vipTier: 'Bronze',
       avatar: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
@@ -581,16 +582,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem('bitora_current_uid', newUser.id);
     } catch {}
 
-    // Initial transaction log with fixed 110 credits
+    // Initial transaction log with fixed 100 credits
     const initialTxn: Transaction = {
       id: `TXN-${Date.now().toString().slice(-6)}`,
       userId: newUser.id,
       type: 'TOP_UP',
-      amount: 110,
-      balanceAfter: 110,
+      amount: 100,
+      balanceAfter: 100,
       status: 'COMPLETED',
       timestamp: new Date().toLocaleString(),
-      note: 'Fixed Welcome Bonus (+110 Credits)',
+      note: 'Fixed Welcome Bonus (+100 Credits)',
     };
     setTransactions(prev => [initialTxn, ...prev]);
 
@@ -631,7 +632,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  // Firebase Google Auth Sign-In & 110 Credits Welcome Bonus Crediting
+  // Firebase Google Auth Sign-In & 100 Credits Welcome Bonus Crediting
   const loginWithFirebaseGoogle = async (
     firebaseUser: {
       uid: string;
@@ -644,19 +645,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const bonusKey = `bitora_google_bonus_${firebaseUser.uid}`;
     let alreadyClaimed = false;
     try {
-      alreadyClaimed =
-        localStorage.getItem(bonusKey) === 'true' ||
-        localStorage.getItem('bitora_welcome_bonus_claimed') === 'true';
+      alreadyClaimed = localStorage.getItem(bonusKey) === 'true';
     } catch {}
 
-    const bonusAmount = 110;
+    const bonusAmount = 100;
     let isNewBonus = false;
 
     // Check if user already exists
     let target = users.find(
       u =>
-        (u.email && u.email.toLowerCase() === userEmail) ||
         u.id === firebaseUser.uid ||
+        (u.email && u.email.toLowerCase() === userEmail) ||
         u.id === `GGL-${firebaseUser.uid.slice(0, 8)}`
     );
 
@@ -664,7 +663,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!target) {
       const newId = firebaseUser.uid;
-      const initialBalance = alreadyClaimed ? 0 : bonusAmount;
+      // Guarantee exactly 100 credits welcome bonus for new verified Google user
+      const initialBalance = bonusAmount;
       const newUser: User = {
         id: newId,
         username: firebaseUser.displayName || userEmail.split('@')[0] || 'VIP Player',
@@ -690,20 +690,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const exactTime = formatExactTimestamp();
 
-      if (!alreadyClaimed) {
-        isNewBonus = true;
-        const bonusTxn: Transaction = {
-          id: `BN-${Date.now().toString().slice(-6)}`,
-          userId: newUser.id,
-          type: 'TOP_UP',
-          amount: bonusAmount,
-          balanceAfter: initialBalance,
-          status: 'COMPLETED',
-          timestamp: exactTime,
-          note: `🎉 Google Sign-In Verified Fixed Welcome Bonus (+${bonusAmount} Credits)`,
-        };
-        setTransactions(prev => [bonusTxn, ...prev]);
-      }
+      isNewBonus = true;
+      const bonusTxn: Transaction = {
+        id: `BN-${Date.now().toString().slice(-6)}`,
+        userId: newUser.id,
+        type: 'TOP_UP',
+        amount: bonusAmount,
+        balanceAfter: initialBalance,
+        status: 'COMPLETED',
+        timestamp: exactTime,
+        note: `🎉 Google Sign-In Verified Fixed Welcome Bonus (+${bonusAmount} Credits)`,
+      };
+      setTransactions(prev => [bonusTxn, ...prev]);
     } else {
       activeUser = target;
       setCurrentUserId(target.id);
@@ -754,6 +752,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               displayName: firebaseUser.displayName || '',
               photoURL: firebaseUser.photoURL || '',
               walletBonusAwarded: bonusAmount,
+              balance: activeUser.balance,
               bonusClaimedAt: serverTimestamp(),
               lastSignIn: serverTimestamp(),
               status: 'ACTIVE',
@@ -771,6 +770,26 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { isNewBonus, bonusAmount, user: activeUser };
   };
 
+  // Global Firebase Auth State Listener to ensure 100 credit welcome bonus trigger
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          await loginWithFirebaseGoogle({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: firebaseUser.displayName,
+            photoURL: firebaseUser.photoURL,
+          });
+        } catch (e) {
+          console.warn('Firebase auth state listener sync note:', e);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   // Firebase Mobile Auth Sign-In & 110 Credits Welcome Bonus Crediting
   const loginWithFirebasePhone = async (
     phoneNumber: string,
@@ -784,7 +803,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       alreadyClaimed = localStorage.getItem(bonusKey) === 'true';
     } catch {}
 
-    const bonusAmount = 110;
+    const bonusAmount = 100;
     let isNewBonus = false;
 
     // Check if user already exists with this phone or ID

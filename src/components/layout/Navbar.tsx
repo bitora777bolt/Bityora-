@@ -183,7 +183,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               type="button"
               onClick={() => setAuthModalOpen(true)}
               className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-2xl bg-white hover:bg-gray-100 text-gray-900 text-xs font-black shadow-[0_0_15px_rgba(255,255,255,0.25)] transition-all cursor-pointer active:scale-95 group shrink-0"
-              title="Sign in with Google & claim 110 Credits Welcome Bonus!"
+              title="Sign in with Google & claim 100 Credits Welcome Bonus!"
             >
               <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -193,7 +193,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </svg>
               <span className="font-extrabold tracking-wide">Sign In</span>
               <span className="text-[10px] font-black bg-[#d4af37] text-black px-1.5 py-0.5 rounded-full shadow-sm animate-pulse">
-                +110 Credits
+                +100 Credits
               </span>
             </button>
 
@@ -203,7 +203,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 onClick={() => setAuthModalOpen(true)}
                 className="bg-gradient-to-r from-[#121724] via-[#161d2d] to-[#0f1420] border border-[#d4af37]/40 hover:border-[#f5d061] rounded-2xl px-3 py-1.5 sm:py-2 flex items-center gap-2 shadow-[0_0_20px_rgba(212,175,55,0.15)] cursor-pointer transition-all hover:scale-[1.02]"
-                title="Sign in with Google to view balance and claim 110 Credits"
+                title="Sign in with Google to view balance and claim 100 Credits"
               >
                 <Lock className="w-3.5 h-3.5 text-[#f5d061]" />
                 <div className="text-left">
@@ -393,7 +393,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Sign in with Google</span>
               </div>
               <span className="bg-[#f5d061] text-black font-black text-[10px] px-2 py-0.5 rounded-full">
-                +110 Bonus
+                +100 Bonus
               </span>
             </button>
 

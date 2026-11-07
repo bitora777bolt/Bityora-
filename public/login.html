@@ -359,7 +359,7 @@
         Authenticate with Google to access protected games and balance.
       </p>
 
-      <!-- Fixed 110 Credits Welcome Bonus -->
+      <!-- Fixed 100 Credits Welcome Bonus -->
       <div class="bonus-box">
         <div class="bonus-box-text">
           <h4>
@@ -368,9 +368,9 @@
               <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
             </svg>
           </h4>
-          <p>Instant 110 credits granted upon your first verified sign-in.</p>
+          <p>Instant 100 credits granted upon your first verified sign-in.</p>
         </div>
-        <div class="bonus-tag">110 CREDITS</div>
+        <div class="bonus-tag">100 CREDITS</div>
       </div>
 
       <!-- Sign In Form (Exclusive 'Sign in with Google') -->
@@ -505,12 +505,56 @@ const firebaseConfig = {
 
         clearAlert();
         
-        // Sync with Bitora local session state so the main app unlocks immediately
+        // Sync with Bitora local session state so the main app unlocks immediately with 100 credits
         try {
           localStorage.setItem("bitora_current_uid", user.uid);
-          // Credit 110 welcome bonus for new accounts
           const bonusKey = `bitora_google_bonus_${user.uid}`;
-          if (localStorage.getItem(bonusKey) !== "true") {
+          const isNew = localStorage.getItem(bonusKey) !== "true";
+          
+          let existingUsers = [];
+          try {
+            const rawUsers = localStorage.getItem("bitora_users");
+            existingUsers = rawUsers ? JSON.parse(rawUsers) : [];
+          } catch {}
+
+          const existingUser = existingUsers.find(u => u.id === user.uid || (u.email && u.email === user.email));
+          if (!existingUser) {
+            const newUser = {
+              id: user.uid,
+              username: user.displayName || "VIP Player",
+              email: user.email || `google_${user.uid.slice(0, 8)}@bitora.vip`,
+              role: "player",
+              balance: 100,
+              isSuspended: false,
+              vipTier: "Gold",
+              avatar: user.photoURL || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80",
+              createdAt: new Date().toISOString().split("T")[0],
+              totalWagered: 0,
+              totalWon: 0,
+            };
+            existingUsers.unshift(newUser);
+            localStorage.setItem("bitora_users", JSON.stringify(existingUsers));
+
+            // Record welcome bonus transaction
+            let existingTxns = [];
+            try {
+              const rawTxns = localStorage.getItem("bitora_transactions");
+              existingTxns = rawTxns ? JSON.parse(rawTxns) : [];
+            } catch {}
+            existingTxns.unshift({
+              id: "BN-" + Date.now().toString().slice(-6),
+              userId: user.uid,
+              type: "TOP_UP",
+              amount: 100,
+              balanceAfter: 100,
+              status: "COMPLETED",
+              timestamp: new Date().toISOString().replace("T", " ").split(".")[0],
+              note: "🎉 Google Sign-In 100 Credit Welcome Bonus",
+            });
+            localStorage.setItem("bitora_transactions", JSON.stringify(existingTxns));
+          }
+
+          if (isNew) {
             localStorage.setItem(bonusKey, "true");
             localStorage.setItem("bitora_welcome_bonus_claimed", "true");
           }

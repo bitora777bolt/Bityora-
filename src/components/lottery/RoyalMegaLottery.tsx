@@ -462,10 +462,10 @@ export const RoyalMegaLottery: React.FC<RoyalMegaLotteryProps> = ({ onRequireAut
             >
               <div className="flex items-center gap-2">
                 <Lock className="w-5 h-5 text-black" />
-                <span>PLAY NOW &bull; SIGN IN / REGISTER (+110 CREDITS)</span>
+                <span>PLAY NOW &bull; SIGN IN / REGISTER (+100 CREDITS)</span>
               </div>
               <span className="text-[11px] font-sans font-bold text-black/80 mt-0.5">
-                Sign in or register to buy tickets with 110 Welcome Bonus credits
+                Sign in or register to buy tickets with 100 Welcome Bonus credits
               </span>
             </button>
           ) : (

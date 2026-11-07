@@ -142,7 +142,7 @@ export const GoogleAuthLogin: React.FC<GoogleAuthLoginProps> = ({
         </p>
       </div>
 
-      {/* Welcome Bonus Notice (110 Credits) */}
+      {/* Welcome Bonus Notice (100 Credits) */}
       <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-[#f5d061]/20 to-amber-500/15 border border-[#d4af37]/50 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-yellow-600 flex items-center justify-center text-black font-black text-sm shadow">
@@ -150,7 +150,7 @@ export const GoogleAuthLogin: React.FC<GoogleAuthLoginProps> = ({
           </div>
           <div>
             <p className="text-xs font-black text-[#f5d061] uppercase tracking-wide flex items-center gap-1">
-              <span>110 Credits Bonus</span>
+              <span>100 Credits Bonus</span>
               <Sparkles className="w-3 h-3 text-amber-300" />
             </p>
             <p className="text-[11px] text-gray-200">
@@ -159,7 +159,7 @@ export const GoogleAuthLogin: React.FC<GoogleAuthLoginProps> = ({
           </div>
         </div>
         <span className="font-mono-numbers font-black text-xs text-black bg-[#f5d061] px-2.5 py-1 rounded-xl shrink-0 shadow">
-          +110
+          +100
         </span>
       </div>
 
