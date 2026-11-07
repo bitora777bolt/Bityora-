@@ -273,15 +273,17 @@ export const Navbar: React.FC<NavbarProps> = ({
               {soundEnabled ? <Volume2 className="w-4 h-4 text-[#f5d061]" /> : <VolumeX className="w-4 h-4" />}
             </button>
 
-            {/* Export & Hosting Guide Button */}
-            <button
-              onClick={openExportModal}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#121622] border border-[#242c3d] text-gray-300 hover:text-white hover:border-[#d4af37]/40 text-xs font-medium transition-all"
-              title="Export Source & Hosting Guide"
-            >
-              <Download className="w-3.5 h-3.5 text-[#d4af37]" />
-              <span>Export</span>
-            </button>
+            {/* Export & Hosting Guide Button - Admin Role Only */}
+            {isAdmin && (
+              <button
+                onClick={openExportModal}
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#121622] border border-[#242c3d] text-gray-300 hover:text-white hover:border-[#d4af37]/40 text-xs font-medium transition-all"
+                title="Export Source & Hosting Guide"
+              >
+                <Download className="w-3.5 h-3.5 text-[#d4af37]" />
+                <span>Export</span>
+              </button>
+            )}
 
             {/* User Account Switcher Dropdown */}
             <div className="relative">
@@ -494,15 +496,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   Instant Refill
                 </button>
-                <button
-                  onClick={() => {
-                    openExportModal();
-                    setMobileMenuOpen(false);
-                  }}
-                  className="flex-1 py-2 bg-[#121622] border border-[#242c3d] text-gray-300 text-xs rounded-lg text-center cursor-pointer"
-                >
-                  Export ZIP
-                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => {
+                      openExportModal();
+                      setMobileMenuOpen(false);
+                    }}
+                    className="flex-1 py-2 bg-[#121622] border border-[#242c3d] text-gray-300 text-xs rounded-lg text-center cursor-pointer"
+                  >
+                    Export ZIP
+                  </button>
+                )}
               </div>
             </div>
           </div>

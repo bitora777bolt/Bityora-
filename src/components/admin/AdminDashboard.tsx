@@ -21,10 +21,15 @@ import {
   Image as ImageIcon,
   RefreshCw,
   Sparkles,
+  Download,
 } from 'lucide-react';
 import { User } from '../../types';
 
-export const AdminDashboard: React.FC = () => {
+interface AdminDashboardProps {
+  onOpenExport?: () => void;
+}
+
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) => {
   const {
     currentUser,
     users,
@@ -171,8 +176,19 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Circulating credits */}
+        {/* Circulating credits & Admin Export Action */}
         <div className="flex items-center gap-3">
+          {onOpenExport && (
+            <button
+              onClick={onOpenExport}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-[#f5d061]/20 to-amber-500/15 hover:from-amber-500/25 hover:to-[#f5d061]/30 border border-[#d4af37]/50 text-[#f5d061] text-xs font-bold transition-all shadow-md cursor-pointer shrink-0"
+              title="Export Project Source & Free Hosting Guide"
+            >
+              <Download className="w-4 h-4 text-[#d4af37]" />
+              <span>Export &amp; Hosting Guide</span>
+            </button>
+          )}
+
           <div className="bg-[#151b26] border border-[#242c3d] rounded-xl px-4 py-2 text-right">
             <span className="text-[10px] text-gray-400 block uppercase font-semibold">Total Circulating</span>
             <span className="font-mono-numbers text-base sm:text-lg font-black text-[#f5d061]">

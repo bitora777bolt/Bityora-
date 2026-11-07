@@ -355,7 +355,7 @@ function AppContent() {
           />
         )}
         {activeTab === 'profile' && <UserProfile />}
-        {activeTab === 'admin' && <AdminDashboard />}
+        {activeTab === 'admin' && <AdminDashboard onOpenExport={() => setExportOpen(true)} />}
         {activeTab === 'ai_studio' && <AiStudioHub />}
         {activeTab === 'phone_auth' && (
           <AuthLoginModal
@@ -387,11 +387,13 @@ function AppContent() {
         onClose={() => setCashierOpen(false)}
       />
 
-      {/* Export & Free Hosting Guide Modal */}
-      <ExportHostingGuide
-        isOpen={exportOpen}
-        onClose={() => setExportOpen(false)}
-      />
+      {/* Export & Free Hosting Guide Modal - Admin Only to Prevent Code/Data Exposure */}
+      {currentUser?.role === 'admin' && (
+        <ExportHostingGuide
+          isOpen={exportOpen}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
 
       {/* Premium Footer */}
       <footer className="mt-auto border-t border-[#242c3d] bg-[#05070a] text-gray-400 py-10 px-4 sm:px-6 lg:px-8">
@@ -442,13 +444,15 @@ function AppContent() {
               >
                 Admin Suite
               </button>
-              <button
-                onClick={() => setExportOpen(true)}
-                className="text-[#f5d061] hover:underline transition-colors flex items-center gap-1"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Export &amp; Hosting Guide</span>
-              </button>
+              {currentUser?.role === 'admin' && (
+                <button
+                  onClick={() => setExportOpen(true)}
+                  className="text-[#f5d061] hover:underline transition-colors flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export &amp; Hosting Guide</span>
+                </button>
+              )}
             </div>
           </div>
 

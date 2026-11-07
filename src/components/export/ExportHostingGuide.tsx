@@ -15,6 +15,7 @@ import {
   X,
   FileCode,
 } from 'lucide-react';
+import { useGame } from '../../context/GameContext';
 
 interface ExportHostingGuideProps {
   isOpen: boolean;
@@ -22,11 +23,15 @@ interface ExportHostingGuideProps {
 }
 
 export const ExportHostingGuide: React.FC<ExportHostingGuideProps> = ({ isOpen, onClose }) => {
+  const { currentUser } = useGame();
+  const isAdmin = currentUser?.role === 'admin';
+
   const [isZipping, setIsZipping] = useState<boolean>(false);
   const [zipSuccess, setZipSuccess] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
-  if (!isOpen) return null;
+  // Strictly restrict rendering to admin role to prevent code and data exposure
+  if (!isOpen || !isAdmin) return null;
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text).catch(() => {});
