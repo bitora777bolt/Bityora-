@@ -97,7 +97,7 @@ export const createRazorpayOrder = async (
 export const verifyRazorpayPayment = async (payload: {
   razorpay_order_id: string;
   razorpay_payment_id: string;
-  razorpay_signature?: string;
+  razorpay_signature: string;
   amount: number;
   userId: string;
 }): Promise<RazorpayVerifyResponse> => {
@@ -116,32 +116,10 @@ export const verifyRazorpayPayment = async (payload: {
 };
 
 /**
- * Simulates a Razorpay Webhook event for end-to-end webhook validation
- */
-export const simulateRazorpayWebhook = async (
-  orderId: string,
-  paymentId: string,
-  amount: number,
-  userId: string
-) => {
-  const res = await fetch('/api/razorpay/simulate-webhook', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      orderId,
-      paymentId,
-      amount,
-      userId,
-    }),
-  });
-
-  return res.json();
-};
-
-/**
  * Fetches Razorpay configuration and environment status
  */
 export const fetchRazorpayConfig = async () => {
   const res = await fetch('/api/razorpay/config');
   return res.json();
 };
+

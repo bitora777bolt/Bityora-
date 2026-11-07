@@ -4,7 +4,7 @@ export interface User {
   id: string; // e.g. "BIT-782914"
   username: string;
   email: string;
-  phone: string;
+  phone?: string;
   role: UserRole;
   balance: number; // Max 5000, Min 0
   isSuspended: boolean;

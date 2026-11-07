@@ -101,7 +101,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Gamepad2 className="w-4 h-4 text-[#d4af37]" />
-              Demo Games
+              Casino Games
             </button>
 
             <button
@@ -138,18 +138,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <ArrowUpRight className="w-4 h-4" />
               <span>Withdraw</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('payment_demo')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold transition-all ${
-                activeTab === 'payment_demo'
-                  ? 'bg-[#d4af37]/15 text-[#f5d061] border border-[#d4af37]/35 shadow-[0_0_10px_rgba(212,175,55,0.15)]'
-                  : 'text-gray-300 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <QrCode className="w-4 h-4 text-[#d4af37]" />
-              QR Demo
             </button>
 
             <button
@@ -405,7 +393,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Gamepad2 className="w-4 h-4 text-[#d4af37]" />
-              Demo Games Hub
+              Casino Games Hub
             </button>
             <button
               onClick={() => {
@@ -432,18 +420,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <PlusCircle className="w-4 h-4" />
               <span>Deposit Funds (₹110 - ₹5,000)</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('payment_demo');
-                setMobileMenuOpen(false);
-              }}
-              className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold ${
-                activeTab === 'payment_demo' ? 'bg-[#d4af37]/20 text-[#f5d061]' : 'text-gray-300'
-              }`}
-            >
-              <QrCode className="w-4 h-4 text-[#d4af37]" />
-              QR Deposit Demo
             </button>
             <button
               onClick={() => {

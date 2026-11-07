@@ -155,23 +155,26 @@ app.post('/api/generate-image', async (req, res) => {
 });
 
 // ==========================================
-// RAZORPAY PAYMENT GATEWAY & WEBHOOK SYSTEM
 // ==========================================
-const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || 'rzp_test_BitoraCasinoDemo';
-const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || 'secret_bitora_test_key_99';
-const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || 'webhook_secret_bitora_test';
+// RAZORPAY PAYMENT GATEWAY & WEBHOOK SYSTEM (STRICT PRODUCTION MODE)
+// ==========================================
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || '';
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || '';
+const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || '';
 
 let razorpayClient: any = null;
-if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+if (RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET) {
   try {
     razorpayClient = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
+      key_id: RAZORPAY_KEY_ID,
+      key_secret: RAZORPAY_KEY_SECRET,
     });
-    console.log('[Razorpay] Initialized with configured credentials.');
+    console.log('[Razorpay] Initialized with live production credentials.');
   } catch (err) {
-    console.warn('[Razorpay] SDK initialization note:', err);
+    console.error('[Razorpay] Production SDK initialization error:', err);
   }
+} else {
+  console.warn('[Razorpay] Warning: RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are not set in environment.');
 }
 
 interface StoredOrder {
@@ -206,17 +209,17 @@ const webhookEvents: WebhookRecord[] = [];
 app.get('/api/razorpay/config', (_req, res) => {
   res.json({
     keyId: RAZORPAY_KEY_ID,
-    isLiveConfigured: Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
+    isLiveConfigured: Boolean(RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET),
     currency: 'INR',
     businessName: 'BITORA VIP Gaming & Casino',
     themeColor: '#d4af37',
   });
 });
 
-// 2. Create Razorpay Order
+// 2. Create Razorpay Live Order
 app.post('/api/razorpay/create-order', async (req, res) => {
   try {
-    const { amount, userId = 'guest-player', userEmail = '', userPhone = '' } = req.body;
+    const { amount, userId = 'vip-player', userEmail = '', userPhone = '' } = req.body;
 
     const numAmount = Number(amount);
     if (!numAmount || isNaN(numAmount) || numAmount <= 0) {
@@ -227,49 +230,26 @@ app.post('/api/razorpay/create-order', async (req, res) => {
       return res.status(400).json({ error: 'Deposit amount exceeds maximum allowable limit of ₹5,000.' });
     }
 
+    if (!razorpayClient || !RAZORPAY_KEY_ID) {
+      return res.status(503).json({
+        error: 'Razorpay production gateway is not configured with active API keys on the server.',
+      });
+    }
+
     const amountInPaise = Math.round(numAmount * 100);
     const receipt = `rcpt_${Date.now().toString().slice(-8)}`;
 
-    let orderData: any = null;
-
-    if (razorpayClient) {
-      try {
-        orderData = await razorpayClient.orders.create({
-          amount: amountInPaise,
-          currency: 'INR',
-          receipt,
-          notes: {
-            userId,
-            platform: 'BITORA_VIP_CASINO',
-            email: userEmail,
-            phone: userPhone,
-          },
-        });
-      } catch (sdkError: any) {
-        console.warn('[Razorpay] SDK order creation failed, falling back to test order:', sdkError?.message || sdkError);
-      }
-    }
-
-    // Fallback sandbox order generation if credentials not provided or in sandbox mode
-    if (!orderData) {
-      const sandboxOrderId = `order_${Date.now().toString().slice(-8)}${Math.random().toString(36).substring(2, 6)}`;
-      orderData = {
-        id: sandboxOrderId,
-        entity: 'order',
-        amount: amountInPaise,
-        amount_paid: 0,
-        amount_due: amountInPaise,
-        currency: 'INR',
-        receipt,
-        status: 'created',
-        attempts: 0,
-        notes: {
-          userId,
-          platform: 'BITORA_VIP_CASINO',
-        },
-        created_at: Math.floor(Date.now() / 1000),
-      };
-    }
+    const orderData = await razorpayClient.orders.create({
+      amount: amountInPaise,
+      currency: 'INR',
+      receipt,
+      notes: {
+        userId,
+        platform: 'BITORA_VIP_CASINO',
+        email: userEmail,
+        phone: userPhone,
+      },
+    });
 
     // Register order in memory store for verification & webhook reconciliation
     ordersStore.set(orderData.id, {
@@ -289,8 +269,10 @@ app.post('/api/razorpay/create-order', async (req, res) => {
       keyId: RAZORPAY_KEY_ID,
     });
   } catch (error: any) {
-    console.error('[Razorpay] Create Order Error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to create Razorpay order.' });
+    console.error('[Razorpay] Live Order Creation Error:', error);
+    return res.status(500).json({
+      error: error?.error?.description || error.message || 'Failed to create Razorpay live order.',
+    });
   }
 });
 
@@ -302,36 +284,33 @@ app.post('/api/razorpay/verify-payment', (req, res) => {
       razorpay_payment_id,
       razorpay_signature,
       amount,
-      userId = 'guest-player',
+      userId = 'vip-player',
     } = req.body;
 
-    if (!razorpay_order_id || !razorpay_payment_id) {
-      return res.status(400).json({ error: 'Missing order_id or payment_id.' });
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({
+        error: 'Missing mandatory payment verification fields (order_id, payment_id, razorpay_signature).',
+      });
     }
 
-    // Verify HMAC-SHA256 signature
-    let isValid = false;
-    if (razorpay_signature) {
-      const generatedSignature = crypto
-        .createHmac('sha256', RAZORPAY_KEY_SECRET)
-        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-        .digest('hex');
-
-      isValid = generatedSignature === razorpay_signature;
-
-      // Also allow test sandbox signatures
-      if (!isValid && razorpay_signature.startsWith('sandbox_sig_')) {
-        isValid = true;
-      }
-    } else {
-      // In sandbox mode without signature, accept verified payment test tokens
-      isValid = razorpay_payment_id.startsWith('pay_');
+    if (!RAZORPAY_KEY_SECRET) {
+      return res.status(500).json({
+        error: 'Razorpay key secret is not configured on the server.',
+      });
     }
+
+    // Verify HMAC-SHA256 signature strictly using the production secret
+    const generatedSignature = crypto
+      .createHmac('sha256', RAZORPAY_KEY_SECRET)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+
+    const isValid = generatedSignature === razorpay_signature;
 
     if (!isValid) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid payment signature. Verification failed.',
+        error: 'Cryptographic signature mismatch. Payment verification failed.',
       });
     }
 
@@ -363,17 +342,20 @@ app.post('/api/razorpay/verify-payment', (req, res) => {
   }
 });
 
-// 4. Official Razorpay Webhook Handler
-// Listens for payment.captured, order.paid events from Razorpay dashboard
+// 4. Official Razorpay Webhook Handler (Strict HMAC-SHA256 validation)
 app.post('/api/razorpay/webhook', (req: any, res) => {
   try {
     const receivedSignature = req.headers['x-razorpay-signature'] as string;
-    let signatureValid = false;
+    if (!receivedSignature) {
+      return res.status(400).json({ error: 'Missing x-razorpay-signature header.' });
+    }
 
-    // Cryptographic verification against RAZORPAY_WEBHOOK_SECRET
-    if (receivedSignature === 'sandbox_webhook' || !process.env.RAZORPAY_WEBHOOK_SECRET) {
-      signatureValid = true;
-    } else if (receivedSignature && req.rawBody) {
+    if (!RAZORPAY_WEBHOOK_SECRET) {
+      return res.status(500).json({ error: 'RAZORPAY_WEBHOOK_SECRET is not configured on server.' });
+    }
+
+    let signatureValid = false;
+    if (req.rawBody) {
       const expectedSignature = crypto
         .createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)
         .update(req.rawBody)
@@ -389,6 +371,10 @@ app.post('/api/razorpay/webhook', (req: any, res) => {
       }
     }
 
+    if (!signatureValid) {
+      return res.status(400).json({ error: 'Invalid Razorpay webhook signature.' });
+    }
+
     const event = req.body?.event || 'unknown';
     const payload = req.body?.payload;
     const paymentEntity = payload?.payment?.entity;
@@ -398,7 +384,7 @@ app.post('/api/razorpay/webhook', (req: any, res) => {
     const orderId = paymentEntity?.order_id || orderEntity?.id || 'order_unknown';
     const amountInPaise = paymentEntity?.amount || orderEntity?.amount || 0;
     const amountInInr = amountInPaise ? amountInPaise / 100 : 0;
-    const userId = paymentEntity?.notes?.userId || orderEntity?.notes?.userId || 'guest-player';
+    const userId = paymentEntity?.notes?.userId || orderEntity?.notes?.userId || 'vip-player';
 
     // Record webhook event in audit history
     const record: WebhookRecord = {
@@ -408,7 +394,7 @@ app.post('/api/razorpay/webhook', (req: any, res) => {
       orderId,
       amount: amountInInr,
       userId,
-      signatureValid,
+      signatureValid: true,
       receivedAt: new Date().toISOString(),
     };
     webhookEvents.unshift(record);
@@ -423,7 +409,6 @@ app.post('/api/razorpay/webhook', (req: any, res) => {
         order.paidAt = Date.now();
         ordersStore.set(orderId, order);
       } else {
-        // Create matching order record if created externally
         ordersStore.set(orderId, {
           orderId,
           amount: amountInInr,
@@ -444,92 +429,11 @@ app.post('/api/razorpay/webhook', (req: any, res) => {
       status: 'ok',
       received: true,
       event,
-      signatureValid,
+      signatureValid: true,
     });
   } catch (error: any) {
     console.error('[Razorpay Webhook] Handler Error:', error);
     return res.status(500).json({ error: error.message || 'Webhook processing failed.' });
-  }
-});
-
-// 5. Test Webhook Simulator (Useful for demo & automated verification)
-app.post('/api/razorpay/simulate-webhook', (req, res) => {
-  try {
-    const { orderId, paymentId, amount, userId = 'BIT-782914' } = req.body;
-    const numAmount = Number(amount) || 1000;
-    const pid = paymentId || `pay_sim_${Date.now().toString().slice(-8)}`;
-    const oid = orderId || `order_sim_${Date.now().toString().slice(-8)}`;
-
-    const simulatedPayload = {
-      entity: 'event',
-      account_id: 'acc_bitora_test',
-      event: 'payment.captured',
-      contains: ['payment'],
-      payload: {
-        payment: {
-          entity: {
-            id: pid,
-            entity: 'payment',
-            amount: numAmount * 100,
-            currency: 'INR',
-            status: 'captured',
-            order_id: oid,
-            method: 'upi',
-            notes: {
-              userId,
-              platform: 'BITORA_VIP_CASINO',
-            },
-          },
-        },
-      },
-      created_at: Math.floor(Date.now() / 1000),
-    };
-
-    // Calculate valid test HMAC
-    const rawString = JSON.stringify(simulatedPayload);
-    const testSignature = crypto
-      .createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)
-      .update(rawString)
-      .digest('hex');
-
-    // Register in webhook history
-    webhookEvents.unshift({
-      id: `wh_sim_${Date.now().toString().slice(-6)}`,
-      event: 'payment.captured (Simulated)',
-      paymentId: pid,
-      orderId: oid,
-      amount: numAmount,
-      userId,
-      signatureValid: true,
-      receivedAt: new Date().toISOString(),
-    });
-
-    // Update order store
-    ordersStore.set(oid, {
-      orderId: oid,
-      amount: numAmount,
-      amountInPaise: numAmount * 100,
-      currency: 'INR',
-      userId,
-      status: 'paid',
-      paymentId: pid,
-      receipt: `rcpt_sim_${Date.now().toString().slice(-6)}`,
-      createdAt: Date.now(),
-      paidAt: Date.now(),
-    });
-
-    return res.json({
-      success: true,
-      message: 'Simulated Razorpay webhook executed successfully.',
-      signature: testSignature,
-      event: 'payment.captured',
-      paymentId: pid,
-      orderId: oid,
-      amount: numAmount,
-      userId,
-    });
-  } catch (error: any) {
-    return res.status(500).json({ error: error.message || 'Webhook simulation failed.' });
   }
 });
 

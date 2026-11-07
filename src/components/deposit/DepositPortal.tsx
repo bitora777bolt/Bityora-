@@ -27,7 +27,6 @@ import {
   loadRazorpayScript,
   createRazorpayOrder,
   verifyRazorpayPayment,
-  simulateRazorpayWebhook,
   fetchRazorpayConfig,
 } from '../../utils/razorpay';
 
@@ -70,7 +69,6 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
   const [selectedAmount, setSelectedAmount] = useState<number>(1000);
   const [selectedMethod, setSelectedMethod] = useState<string>('Instant UPI (GPay, PhonePe, Paytm, BHIM)');
   const [loading, setLoading] = useState<boolean>(false);
-  const [isSandboxProcessing, setIsSandboxProcessing] = useState<boolean>(false);
   const [msg, setMsg] = useState<{ text: string; isError?: boolean } | null>(null);
   const [copiedKey, setCopiedKey] = useState<boolean>(false);
 
@@ -93,8 +91,6 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
   // Webhook Monitor Tab
   const [showWebhookMonitor, setShowWebhookMonitor] = useState<boolean>(false);
   const [webhookLogs, setWebhookLogs] = useState<any[]>([]);
-  const [testingWebhook, setTestingWebhook] = useState<boolean>(false);
-  const [webhookResult, setWebhookResult] = useState<any | null>(null);
 
   // Load Razorpay Config & SDK on Mount
   useEffect(() => {
@@ -164,7 +160,7 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
           prefill: {
             name: currentUser.username || 'VIP Player',
             email: currentUser.email || 'vip@bitora.casino',
-            contact: currentUser.phone || '+91 98765 43210',
+            contact: currentUser.phone || '',
           },
           theme: {
             color: '#d4af37',
@@ -228,95 +224,11 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
         });
         rzp.open();
       } else {
-        // Fallback: If external CDN is blocked by iFrame or sandbox security, execute verified test sandbox payment
-        await handleInstantSandboxPayment(orderRes.order.id);
+        throw new Error('Razorpay Checkout SDK could not be loaded. Please ensure an active internet connection and that ad-blockers are disabled.');
       }
     } catch (err: any) {
       setMsg({ text: err.message || 'Payment initiation error.', isError: true });
       setLoading(false);
-    }
-  };
-
-  // Instant Sandbox Test Payment:
-  // Completes the entire Razorpay order creation -> signature verification -> webhook dispatch -> wallet credit pipeline
-  const handleInstantSandboxPayment = async (existingOrderId?: string) => {
-    if (!currentUser) return;
-    setIsSandboxProcessing(true);
-    setMsg(null);
-
-    try {
-      let orderId = existingOrderId;
-      if (!orderId) {
-        const orderRes = await createRazorpayOrder(
-          selectedAmount,
-          currentUser.id,
-          currentUser.email,
-          currentUser.phone
-        );
-        orderId = orderRes.order.id;
-      }
-
-      const mockPaymentId = `pay_sim_${Date.now().toString().slice(-8)}`;
-      const mockSignature = `sandbox_sig_${Date.now()}`;
-
-      // Call backend verification API
-      const verifyRes = await verifyRazorpayPayment({
-        razorpay_order_id: orderId,
-        razorpay_payment_id: mockPaymentId,
-        razorpay_signature: mockSignature,
-        amount: selectedAmount,
-        userId: currentUser.id,
-      });
-
-      if (verifyRes.success) {
-        // Automatically credit the user's wallet!
-        const creditRes = creditWalletFromRazorpay(
-          selectedAmount,
-          mockPaymentId,
-          orderId,
-          'Razorpay Sandbox Test UPI'
-        );
-
-        // Also trigger simulated webhook to verify webhook receiver
-        simulateRazorpayWebhook(orderId, mockPaymentId, selectedAmount, currentUser.id)
-          .then(() => fetchWebhookOrders())
-          .catch(() => {});
-
-        setReceipt({
-          orderId,
-          paymentId: mockPaymentId,
-          amount: selectedAmount,
-          timestamp: new Date().toLocaleString('en-IN'),
-          balanceAfter: creditRes.balanceAfter,
-        });
-      }
-    } catch (err: any) {
-      setMsg({ text: err.message || 'Sandbox simulation failed.', isError: true });
-    } finally {
-      setIsSandboxProcessing(false);
-      setLoading(false);
-    }
-  };
-
-  // Test Webhook Dispatcher
-  const handleTriggerTestWebhook = async () => {
-    setTestingWebhook(true);
-    setWebhookResult(null);
-    try {
-      const simOrderId = `order_wh_${Date.now().toString().slice(-6)}`;
-      const simPaymentId = `pay_wh_${Date.now().toString().slice(-6)}`;
-      const res = await simulateRazorpayWebhook(
-        simOrderId,
-        simPaymentId,
-        selectedAmount,
-        currentUser?.id || 'BIT-782914'
-      );
-      setWebhookResult(res);
-      await fetchWebhookOrders();
-    } catch (err: any) {
-      setWebhookResult({ error: err.message });
-    } finally {
-      setTestingWebhook(false);
     }
   };
 
@@ -630,10 +542,11 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
             <span>RBI Compliant &amp; PCI-DSS Level 1</span>
           </div>
 
-          <div className="flex items-center gap-2 font-mono text-[11px] text-amber-300">
-            <span>Gateway Key:</span>
-            <span className="bg-[#1a2233] px-2 py-0.5 rounded text-white border border-[#2d3b55]">
-              {razorpayConfig?.keyId ? `${razorpayConfig.keyId.slice(0, 14)}...` : 'rzp_test_...'}
+          <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-400">
+            <span>Gateway Mode:</span>
+            <span className="bg-[#1a2233] px-2.5 py-0.5 rounded text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Live Production
             </span>
           </div>
         </div>
@@ -656,13 +569,13 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
           </div>
         )}
 
-        {/* Primary Checkout Actions */}
-        <div className="space-y-3 pt-2">
-          {/* 1. Official Razorpay Checkout Button */}
+        {/* Primary Checkout Action */}
+        <div className="pt-2">
+          {/* Official Razorpay Checkout Button */}
           <button
             type="button"
             onClick={handleRazorpayCheckout}
-            disabled={loading || isSandboxProcessing}
+            disabled={loading}
             className="w-full py-4 sm:py-5 rounded-2xl font-black text-black text-base sm:text-lg bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:from-[#f5d061] hover:to-[#d4af37] shadow-[0_0_35px_rgba(212,175,55,0.4)] transition-all cursor-pointer flex items-center justify-center gap-3 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (
@@ -678,30 +591,10 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
               </>
             )}
           </button>
-
-          {/* 2. Direct Sandbox Instant Test Payment (For quick testing without card/OTP) */}
-          <button
-            type="button"
-            onClick={() => handleInstantSandboxPayment()}
-            disabled={loading || isSandboxProcessing}
-            className="w-full py-3.5 rounded-2xl bg-[#141b27] hover:bg-[#1b2537] border-2 border-emerald-500/50 hover:border-emerald-400 text-xs sm:text-sm font-bold text-emerald-300 hover:text-white transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
-          >
-            {isSandboxProcessing ? (
-              <>
-                <RotateCcw className="w-4 h-4 animate-spin text-emerald-400" />
-                <span>VERIFYING SANDBOX PAYMENT &amp; DISPATCHING WEBHOOK...</span>
-              </>
-            ) : (
-              <>
-                <Zap className="w-4 h-4 text-emerald-400 fill-emerald-400" />
-                <span>⚡ 1-Click Sandbox Test Pay (Auto-Verify &amp; Credit ₹{selectedAmount.toLocaleString('en-IN')})</span>
-              </>
-            )}
-          </button>
         </div>
       </div>
 
-      {/* ================= RAZORPAY WEBHOOK MONITOR & SIMULATOR ================= */}
+      {/* ================= RAZORPAY WEBHOOK MONITOR ================= */}
       <div className="bg-[#0e121a] border-2 border-[#242c3d] rounded-3xl p-6 sm:p-8 shadow-xl space-y-4">
         <div className="flex items-center justify-between border-b border-[#242c3d] pb-4">
           <div className="flex items-center gap-2.5">
@@ -721,7 +614,7 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
             onClick={() => setShowWebhookMonitor(!showWebhookMonitor)}
             className="text-xs font-bold text-[#f5d061] hover:underline cursor-pointer"
           >
-            {showWebhookMonitor ? 'Hide Webhook Details' : 'Show Webhook Details & Simulator'}
+            {showWebhookMonitor ? 'Hide Webhook Details' : 'View Live Webhook Details'}
           </button>
         </div>
 
@@ -753,37 +646,13 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={handleTriggerTestWebhook}
-                disabled={testingWebhook}
-                className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center gap-2 cursor-pointer shadow active:scale-95 transition-all disabled:opacity-50"
-              >
-                {testingWebhook ? (
-                  <>
-                    <RotateCcw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Dispatching Test Webhook...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-3.5 h-3.5 fill-black" />
-                    <span>Send Test Webhook (payment.captured)</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
                 onClick={fetchWebhookOrders}
-                className="px-3 py-2.5 rounded-xl bg-[#182030] hover:bg-[#222e44] text-xs font-bold text-gray-300 border border-[#2d3b55] cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#182030] hover:bg-[#222e44] text-xs font-bold text-gray-300 border border-[#2d3b55] cursor-pointer flex items-center gap-2"
               >
-                Refresh Log
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Refresh Live Logs</span>
               </button>
             </div>
-
-            {webhookResult && (
-              <div className="p-3 bg-[#0a0f16] border border-emerald-500/40 rounded-xl font-mono text-[11px] text-emerald-300 overflow-x-auto">
-                <pre>{JSON.stringify(webhookResult, null, 2)}</pre>
-              </div>
-            )}
 
             {/* Recent Webhook Events */}
             <div className="pt-2">

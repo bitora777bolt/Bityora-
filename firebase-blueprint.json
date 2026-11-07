@@ -6,11 +6,11 @@
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
-        "phoneNumber": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
         "displayName": { "type": "string" },
         "createdAt": { "type": "string" }
       },
-      "required": ["uid", "phoneNumber"]
+      "required": ["uid", "email"]
     }
   },
   "firestore": {

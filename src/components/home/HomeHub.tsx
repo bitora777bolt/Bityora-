@@ -335,20 +335,20 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onSelectTab, onOpenCashier, on
           </button>
         </div>
 
-        {/* Feature 2: Simulated QR Payment Demo */}
+        {/* Feature 2: Official Razorpay Gateway */}
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-5 space-y-3">
           <div className="flex items-center gap-2.5 text-[#f5d061]">
-            <QrCode className="w-5 h-5" />
-            <h4 className="font-cinzel text-sm font-bold text-white">QR Deposit Demonstration</h4>
+            <Zap className="w-5 h-5 text-emerald-400" />
+            <h4 className="font-cinzel text-sm font-bold text-white">Live Razorpay Gateway</h4>
           </div>
           <p className="text-xs text-gray-400">
-            Interactive UPI QR placeholder with pending, approved, and rejected status tracking. Real-time simulated verification.
+            Secure, instant wallet credits via Razorpay. Supports UPI (GPay, PhonePe, Paytm), Net Banking, and Debit/Credit cards.
           </p>
           <button
-            onClick={() => onSelectTab('payment_demo')}
+            onClick={() => onSelectTab('deposit')}
             className="text-xs font-bold text-[#f5d061] hover:underline flex items-center gap-1 cursor-pointer"
           >
-            <span>Test QR Demo Screen</span>
+            <span>Deposit Funds Now</span>
             <ArrowRight className="w-3 h-3" />
           </button>
         </div>

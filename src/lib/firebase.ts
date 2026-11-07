@@ -6,7 +6,7 @@ import firebaseConfig from '../../firebase-applet-config.json';
 // Initialize Firebase with modular SDK v9+
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 // Connection verification test per skill guidelines
 async function testFirestoreConnection() {

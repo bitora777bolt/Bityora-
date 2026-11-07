@@ -34,7 +34,6 @@ import {
   loadRazorpayScript,
   createRazorpayOrder,
   verifyRazorpayPayment,
-  simulateRazorpayWebhook,
 } from '../../utils/razorpay';
 
 interface AccountStatementModalProps {
@@ -187,11 +186,6 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
     setTimeout(() => setCopiedUpi(false), 2000);
   };
 
-  const handleGenerateUtr = () => {
-    const randomUtr = `UTR${Math.floor(100000000000 + Math.random() * 900000000000)}`;
-    setReferenceUtr(randomUtr);
-  };
-
   if (!isOpen) return null;
 
   const currentBal = currentUser?.balance || 0;
@@ -280,7 +274,7 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
           prefill: {
             name: currentUser.username || 'VIP Player',
             email: currentUser.email || 'vip@bitora.casino',
-            contact: currentUser.phone || '+91 98765 43210',
+            contact: currentUser.phone || '',
           },
           theme: {
             color: '#d4af37',
@@ -332,61 +326,10 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
         });
         rzp.open();
       } else {
-        await handleInstantSandboxDeposit(orderRes.order.id);
+        throw new Error('Razorpay Checkout SDK could not be loaded. Please ensure an active internet connection and that ad-blockers are disabled.');
       }
     } catch (err: any) {
       setDepositMsg({ text: err.message || 'Payment error occurred.', isError: true });
-      setIsPayingRazorpay(false);
-    }
-  };
-
-  const handleInstantSandboxDeposit = async (existingOrderId?: string) => {
-    if (!currentUser) return;
-    setIsPayingRazorpay(true);
-    setDepositMsg(null);
-    try {
-      let orderId = existingOrderId;
-      if (!orderId) {
-        const orderRes = await createRazorpayOrder(
-          depositAmount,
-          currentUser.id,
-          currentUser.email,
-          currentUser.phone
-        );
-        orderId = orderRes.order.id;
-      }
-      const mockPaymentId = `pay_sim_${Date.now().toString().slice(-8)}`;
-      const mockSignature = `sandbox_sig_${Date.now()}`;
-
-      const verifyRes = await verifyRazorpayPayment({
-        razorpay_order_id: orderId,
-        razorpay_payment_id: mockPaymentId,
-        razorpay_signature: mockSignature,
-        amount: depositAmount,
-        userId: currentUser.id,
-      });
-
-      if (verifyRes.success) {
-        const creditRes = creditWalletFromRazorpay(
-          depositAmount,
-          mockPaymentId,
-          orderId,
-          'Razorpay Sandbox Test Pay'
-        );
-        simulateRazorpayWebhook(orderId, mockPaymentId, depositAmount, currentUser.id).catch(() => {});
-        setRazorpaySuccessReceipt({
-          paymentId: mockPaymentId,
-          orderId,
-          amount: depositAmount,
-          balanceAfter: creditRes.balanceAfter,
-        });
-        setDepositMsg({
-          text: `🎉 ₹${depositAmount.toLocaleString('en-IN')} successfully credited via Razorpay Sandbox!`,
-        });
-      }
-    } catch (err: any) {
-      setDepositMsg({ text: err.message || 'Sandbox payment failed.', isError: true });
-    } finally {
       setIsPayingRazorpay(false);
     }
   };
@@ -660,15 +603,15 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
               )}
             </div>
 
-            {/* Quick Instant Refill Button at bottom */}
+            {/* Direct Deposit Link */}
             <div className="pt-2 border-t border-[#242c3d] flex items-center justify-between">
-              <span className="text-[11px] text-gray-400">Need more demo funds immediately?</span>
+              <span className="text-[11px] text-gray-400">Need to recharge your balance?</span>
               <button
-                onClick={() => instantRefillCredits(5000)}
+                onClick={() => setActiveTab('DEPOSIT')}
                 className="px-3 py-1.5 rounded-xl bg-[#172030] hover:bg-[#202d44] border border-[#2d3b55] text-xs font-bold text-[#f5d061] flex items-center gap-1.5 cursor-pointer"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
-                <span>+₹5,000 Instant Refill</span>
+                <span>Go to Razorpay Deposit</span>
               </button>
             </div>
           </div>
@@ -922,16 +865,6 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
                       </>
                     )}
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleInstantSandboxDeposit()}
-                    disabled={isPayingRazorpay}
-                    className="w-full py-2.5 rounded-xl bg-[#141b27] hover:bg-[#1b2537] border border-emerald-500/50 text-xs font-bold text-emerald-300 hover:text-white transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-                  >
-                    <Zap className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
-                    <span>⚡ 1-Click Sandbox Test Pay (Auto-Credit ₹{depositAmount.toLocaleString('en-IN')})</span>
-                  </button>
                 </div>
               </div>
             )}
@@ -1076,15 +1009,8 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
                 <div className="bg-[#121622] p-3 rounded-2xl border border-[#242c3d] space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-gray-300">
-                      Payment Reference / UTR No. (Optional):
+                      Payment Reference / 12-Digit UTR No. (from UPI/Bank):
                     </span>
-                    <button
-                      type="button"
-                      onClick={handleGenerateUtr}
-                      className="text-[10px] text-[#f5d061] hover:underline font-bold"
-                    >
-                      Auto-generate Demo UTR
-                    </button>
                   </div>
                   <input
                     type="text"

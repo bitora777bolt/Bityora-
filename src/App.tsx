@@ -3,7 +3,6 @@ import { GameProvider, useGame } from './context/GameContext';
 import { Navbar } from './components/layout/Navbar';
 import { HomeHub } from './components/home/HomeHub';
 import { GamesHub } from './components/games/GamesHub';
-import { PaymentDemoScreen } from './components/payment/PaymentDemoScreen';
 import { UserProfile } from './components/profile/UserProfile';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AiStudioHub } from './components/ai/AiStudioHub';
@@ -336,7 +335,6 @@ function AppContent() {
           />
         )}
 
-        {activeTab === 'payment_demo' && <PaymentDemoScreen />}
         {activeTab === 'deposit' && (
           <DepositPortal
             onBackToGames={() => handleSelectTab('games')}
@@ -419,13 +417,13 @@ function AppContent() {
                 onClick={() => handleSelectTab('games')}
                 className="hover:text-white transition-colors"
               >
-                Demo Games (Mines, Chicken, Aviator)
+                Casino Games (Mines, Chicken, Aviator)
               </button>
               <button
-                onClick={() => handleSelectTab('payment_demo')}
-                className="hover:text-white transition-colors"
+                onClick={() => handleSelectTab('deposit')}
+                className="hover:text-white transition-colors text-emerald-400"
               >
-                QR Demo
+                Deposit (Razorpay)
               </button>
               <button
                 onClick={() => handleSelectTab('ai_studio')}
