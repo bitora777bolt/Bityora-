@@ -94,7 +94,7 @@ export const GoogleAuthLogin: React.FC<GoogleAuthLoginProps> = ({
       } else if (err.code === 'auth/popup-blocked') {
         userFriendlyMsg = 'Google sign-in popup was blocked by browser. Please enable popups for this site.';
       } else if (err.code === 'auth/unauthorized-domain') {
-        userFriendlyMsg = 'This web domain is not authorized in Firebase Console -> Auth -> Authorized domains.';
+        userFriendlyMsg = 'This web domain is not authorized. Please add lucent-meerkat-577ff5.netlify.app (and your current domain) in Firebase Console -> Authentication -> Settings -> Authorized domains.';
       }
 
       setError(userFriendlyMsg);

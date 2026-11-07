@@ -1,14 +1,10 @@
-
-const firebaseConfig = {
-  apiKey: "AIzaSyAGzk8aI3e-AKpNEDRbsKDPDO0eIg79aMw",
-    authDomain: "bityora.firebaseapp.com",
-      projectId: "bityora",
-        storageBucket: "bityora.firebasestorage.app",
-          messagingSenderId: "706352651228",
-            appId: "1:706352651228:web:ff5bc93269ed3c98a4cd19",
-              measurementId: "G-GCE4DKNQ13"
-              };
-
-              // Initialize Firebase
-              const app = initializeApp(firebaseConfig);
-              const analytics = getAnalytics(app);
+{
+  "apiKey": "AIzaSyAGzk8aI3e-AKpNEDRbsKDPDO0eIg79aMw",
+  "authDomain": "bityora.firebaseapp.com",
+  "projectId": "bityora",
+  "storageBucket": "bityora.firebasestorage.app",
+  "messagingSenderId": "706352651228",
+  "appId": "1:706352651228:web:ff5bc93269ed3c98a4cd19",
+  "measurementId": "G-GCE4DKNQ13",
+  "firestoreDatabaseId": "(default)"
+}

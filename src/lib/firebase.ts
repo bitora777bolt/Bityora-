@@ -1,15 +1,35 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// Initialize Firebase with modular SDK v9+
+// Initialize Firebase with modular SDK v10+
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore targeting default database
+export const db = 
+  (firebaseConfig as any).firestoreDatabaseId && 
+  (firebaseConfig as any).firestoreDatabaseId !== '(default)'
+    ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
+    : getFirestore(app);
+
+// Initialize Analytics safely
+export let analytics: Analytics | null = null;
+if (typeof window !== 'undefined') {
+  isSupported()
+    .then((supported) => {
+      if (supported) {
+        analytics = getAnalytics(app);
+      }
+    })
+    .catch((err) => {
+      console.warn('Firebase Analytics not supported in this runtime environment:', err);
+    });
+}
 
 // Connection verification test per skill guidelines
 async function testFirestoreConnection() {
