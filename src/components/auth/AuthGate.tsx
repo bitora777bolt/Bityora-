@@ -1,5 +1,5 @@
 import React from 'react';
-import { PhoneAuthLogin } from './PhoneAuthLogin';
+import { GoogleAuthLogin } from './GoogleAuthLogin';
 import {
   Lock,
   Sparkles,
@@ -66,15 +66,15 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
           <div className="pt-2 border-t border-[#d4af37]/30 flex items-center justify-between text-[10px] text-gray-300">
             <span className="flex items-center gap-1">
               <EyeOff className="w-3 h-3 text-amber-400" />
-              <span>Real SMS verification &bull; Balances completely hidden</span>
+              <span>Google Account Verification &bull; Balances completely hidden</span>
             </span>
             <span className="text-emerald-400 font-mono font-bold">100% Protected</span>
           </div>
         </div>
 
-        {/* Core Sign In Component (PhoneAuthLogin) */}
+        {/* Core Sign In Component (GoogleAuthLogin) */}
         <div className="bg-[#0b0e17] border-2 border-[#d4af37]/60 rounded-3xl shadow-[0_0_60px_rgba(0,0,0,0.9),0_0_30px_rgba(212,175,55,0.2)] overflow-hidden">
-          <PhoneAuthLogin
+          <GoogleAuthLogin
             onSuccess={(_firebaseUser: User) => {
               if (onAuthenticated) {
                 onAuthenticated();
@@ -86,7 +86,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
 
         {/* Security Disclaimers */}
         <p className="text-[11px] text-center text-gray-500 max-w-sm mx-auto">
-          BITORA operates as an exclusive simulation suite. Protected routes strictly require real SMS verification to access games, cashier, and wallet controls.
+          BITORA operates as an exclusive simulation suite. Protected routes strictly require Google Authentication to access games, cashier, and wallet controls.
         </p>
       </div>
     </div>

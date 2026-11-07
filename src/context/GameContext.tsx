@@ -68,7 +68,16 @@ interface GameContextType {
   hasClaimedFirstGameBonus: boolean;
   firstGameBonusNotification: string | null;
   dismissFirstGameBonusNotification: () => void;
-  // Firebase Mobile Auth & 110 Credits Welcome Bonus
+  // Firebase Google Auth & 110 Credits Welcome Bonus
+  welcomeBonusNotification: string | null;
+  dismissWelcomeBonusNotification: () => void;
+  hasClaimedWelcomeBonus: boolean;
+  loginWithFirebaseGoogle: (firebaseUser: {
+    uid: string;
+    email?: string | null;
+    displayName?: string | null;
+    photoURL?: string | null;
+  }) => Promise<{ isNewBonus: boolean; bonusAmount: number; user: User }>;
   phoneBonusNotification: string | null;
   dismissPhoneBonusNotification: () => void;
   hasClaimedPhoneBonus: boolean;
@@ -330,19 +339,27 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setFirstGameBonusNotification(null);
   };
 
-  // Mobile Sign-In 110 Credits Welcome Bonus Tracking
-  const [phoneBonusNotification, setPhoneBonusNotification] = useState<string | null>(null);
-  const [hasClaimedPhoneBonus, setHasClaimedPhoneBonus] = useState<boolean>(() => {
+  // Google Sign-In 110 Credits Welcome Bonus Tracking
+  const [welcomeBonusNotification, setWelcomeBonusNotification] = useState<string | null>(null);
+  const [hasClaimedWelcomeBonus, setHasClaimedWelcomeBonus] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('bitora_phone_bonus_claimed') === 'true';
+      return (
+        localStorage.getItem('bitora_welcome_bonus_claimed') === 'true' ||
+        localStorage.getItem('bitora_phone_bonus_claimed') === 'true'
+      );
     } catch {
       return false;
     }
   });
 
-  const dismissPhoneBonusNotification = () => {
-    setPhoneBonusNotification(null);
+  const dismissWelcomeBonusNotification = () => {
+    setWelcomeBonusNotification(null);
   };
+
+  // Backwards compatibility aliases
+  const phoneBonusNotification = welcomeBonusNotification;
+  const dismissPhoneBonusNotification = dismissWelcomeBonusNotification;
+  const hasClaimedPhoneBonus = hasClaimedWelcomeBonus;
 
   // Razorpay Online Payment Success State
   const [razorpaySuccessNotification, setRazorpaySuccessNotification] = useState<{
@@ -614,6 +631,146 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
+  // Firebase Google Auth Sign-In & 110 Credits Welcome Bonus Crediting
+  const loginWithFirebaseGoogle = async (
+    firebaseUser: {
+      uid: string;
+      email?: string | null;
+      displayName?: string | null;
+      photoURL?: string | null;
+    }
+  ): Promise<{ isNewBonus: boolean; bonusAmount: number; user: User }> => {
+    const userEmail = firebaseUser.email?.trim().toLowerCase() || `google_${firebaseUser.uid.slice(0, 8)}@bitora.vip`;
+    const bonusKey = `bitora_google_bonus_${firebaseUser.uid}`;
+    let alreadyClaimed = false;
+    try {
+      alreadyClaimed =
+        localStorage.getItem(bonusKey) === 'true' ||
+        localStorage.getItem('bitora_welcome_bonus_claimed') === 'true';
+    } catch {}
+
+    const bonusAmount = 110;
+    let isNewBonus = false;
+
+    // Check if user already exists
+    let target = users.find(
+      u =>
+        (u.email && u.email.toLowerCase() === userEmail) ||
+        u.id === firebaseUser.uid ||
+        u.id === `GGL-${firebaseUser.uid.slice(0, 8)}`
+    );
+
+    let activeUser: User;
+
+    if (!target) {
+      const newId = firebaseUser.uid;
+      const initialBalance = alreadyClaimed ? 0 : bonusAmount;
+      const newUser: User = {
+        id: newId,
+        username: firebaseUser.displayName || userEmail.split('@')[0] || 'VIP Player',
+        email: userEmail,
+        role: 'player',
+        balance: initialBalance,
+        isSuspended: false,
+        vipTier: 'Gold',
+        avatar:
+          firebaseUser.photoURL ||
+          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+        createdAt: new Date().toISOString().split('T')[0],
+        totalWagered: 0,
+        totalWon: 0,
+      };
+
+      setUsers(prev => [newUser, ...prev]);
+      setCurrentUserId(newUser.id);
+      try {
+        localStorage.setItem('bitora_current_uid', newUser.id);
+      } catch {}
+      activeUser = newUser;
+
+      const exactTime = formatExactTimestamp();
+
+      if (!alreadyClaimed) {
+        isNewBonus = true;
+        const bonusTxn: Transaction = {
+          id: `BN-${Date.now().toString().slice(-6)}`,
+          userId: newUser.id,
+          type: 'TOP_UP',
+          amount: bonusAmount,
+          balanceAfter: initialBalance,
+          status: 'COMPLETED',
+          timestamp: exactTime,
+          note: `🎉 Google Sign-In Verified Fixed Welcome Bonus (+${bonusAmount} Credits)`,
+        };
+        setTransactions(prev => [bonusTxn, ...prev]);
+      }
+    } else {
+      activeUser = target;
+      setCurrentUserId(target.id);
+      try {
+        localStorage.setItem('bitora_current_uid', target.id);
+      } catch {}
+
+      if (!alreadyClaimed) {
+        isNewBonus = true;
+        const newBalance = target.balance + bonusAmount;
+        setUsers(prev => prev.map(u => (u.id === target!.id ? { ...u, balance: newBalance } : u)));
+        activeUser = { ...target, balance: newBalance };
+
+        const exactTime = formatExactTimestamp();
+        const bonusTxn: Transaction = {
+          id: `BN-${Date.now().toString().slice(-6)}`,
+          userId: target.id,
+          type: 'TOP_UP',
+          amount: bonusAmount,
+          balanceAfter: newBalance,
+          status: 'COMPLETED',
+          timestamp: exactTime,
+          note: `🎉 Google Sign-In Verified Fixed Welcome Bonus (+${bonusAmount} Credits)`,
+        };
+        setTransactions(prev => [bonusTxn, ...prev]);
+      }
+    }
+
+    if (isNewBonus) {
+      try {
+        localStorage.setItem(bonusKey, 'true');
+        localStorage.setItem('bitora_welcome_bonus_claimed', 'true');
+      } catch {}
+      setHasClaimedWelcomeBonus(true);
+      setWelcomeBonusNotification(
+        `🎉 Google Sign-In Bonus Credited! Exactly ${bonusAmount} credits have been added to your wallet balance.`
+      );
+      sounds.cashOutWin();
+
+      // Persist to Firestore
+      try {
+        if (db && auth.currentUser && auth.currentUser.uid === firebaseUser.uid) {
+          await setDoc(
+            doc(db, 'users', firebaseUser.uid),
+            {
+              uid: firebaseUser.uid,
+              email: userEmail,
+              displayName: firebaseUser.displayName || '',
+              photoURL: firebaseUser.photoURL || '',
+              walletBonusAwarded: bonusAmount,
+              bonusClaimedAt: serverTimestamp(),
+              lastSignIn: serverTimestamp(),
+              status: 'ACTIVE',
+            },
+            { merge: true }
+          );
+        }
+      } catch (firestoreErr) {
+        console.warn('Firestore user doc sync notice:', firestoreErr);
+      }
+    } else {
+      sounds.chipClick();
+    }
+
+    return { isNewBonus, bonusAmount, user: activeUser };
+  };
+
   // Firebase Mobile Auth Sign-In & 110 Credits Welcome Bonus Crediting
   const loginWithFirebasePhone = async (
     phoneNumber: string,
@@ -712,9 +869,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.setItem(bonusKey, 'true');
         localStorage.setItem('bitora_phone_bonus_claimed', 'true');
       } catch {}
-      setHasClaimedPhoneBonus(true);
-      setPhoneBonusNotification(
-        `🎉 Mobile Sign-In Bonus Credited! Exactly ${bonusAmount} credits have been added to your wallet balance.`
+      setHasClaimedWelcomeBonus(true);
+      setWelcomeBonusNotification(
+        `🎉 VIP Sign-In Bonus Credited! Exactly ${bonusAmount} credits have been added to your wallet balance.`
       );
       sounds.cashOutWin();
 
@@ -1302,6 +1459,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         hasClaimedFirstGameBonus,
         firstGameBonusNotification,
         dismissFirstGameBonusNotification,
+        welcomeBonusNotification,
+        dismissWelcomeBonusNotification,
+        hasClaimedWelcomeBonus,
+        loginWithFirebaseGoogle,
         phoneBonusNotification,
         dismissPhoneBonusNotification,
         hasClaimedPhoneBonus,

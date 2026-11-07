@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { PhoneAuthLogin } from './PhoneAuthLogin';
+import { GoogleAuthLogin } from './GoogleAuthLogin';
 import { User } from 'firebase/auth';
 import { Lock, X } from 'lucide-react';
 
@@ -41,24 +41,6 @@ export const AuthLoginModal: React.FC<AuthLoginModalProps> = ({
     };
   }, [isOpen]);
 
-  // Clean up any stray recaptcha verifier when modal closes
-  useEffect(() => {
-    return () => {
-      if (typeof window !== 'undefined' && (window as any).recaptchaVerifier) {
-        try {
-          (window as any).recaptchaVerifier.clear();
-        } catch (e) {
-          console.warn('RecaptchaVerifier cleanup notice:', e);
-        }
-        (window as any).recaptchaVerifier = undefined;
-      }
-      const container = typeof document !== 'undefined' ? document.getElementById('recaptcha-container') : null;
-      if (container) {
-        container.innerHTML = '';
-      }
-    };
-  }, [isOpen]);
-
   // Handle ESC key press to close modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -87,7 +69,7 @@ export const AuthLoginModal: React.FC<AuthLoginModalProps> = ({
       </div>
 
       <div
-        className={`relative w-full min-w-[320px] sm:min-w-[480px] md:min-w-[560px] max-w-xl md:max-w-2xl min-h-[480px] sm:min-h-[520px] max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto my-auto rounded-3xl border-2 border-[#d4af37]/60 bg-[#0b0e17] shadow-[0_0_80px_rgba(0,0,0,0.95),0_0_40px_rgba(212,175,55,0.25)] flex flex-col justify-start animate-in zoom-in-95 duration-200 p-5 sm:p-8 ${className}`}
+        className={`relative w-full min-w-[320px] sm:min-w-[480px] md:min-w-[560px] max-w-xl md:max-w-2xl min-h-[440px] max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto my-auto rounded-3xl border-2 border-[#d4af37]/60 bg-[#0b0e17] shadow-[0_0_80px_rgba(0,0,0,0.95),0_0_40px_rgba(212,175,55,0.25)] flex flex-col justify-start animate-in zoom-in-95 duration-200 p-5 sm:p-8 ${className}`}
         style={{ zIndex: 100000 }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -96,15 +78,15 @@ export const AuthLoginModal: React.FC<AuthLoginModalProps> = ({
           <div className="space-y-1">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-[#d4af37]/40 text-[#f5d061] text-[10px] font-black uppercase tracking-wider">
               <Lock className="w-3 h-3 text-[#f5d061]" />
-              <span>Real SMS Verification Required</span>
+              <span>Google Verification Required</span>
             </div>
             <h2 id="auth-modal-title" className="font-cinzel text-lg sm:text-2xl font-black text-white tracking-wide">
-              {title || (requiredForGame ? `UNLOCK & PLAY ${requiredForGame.toUpperCase()}` : 'SIGN IN / REGISTER VIA SMS')}
+              {title || (requiredForGame ? `UNLOCK & PLAY ${requiredForGame.toUpperCase()}` : 'SIGN IN WITH GOOGLE')}
             </h2>
             <p className="text-xs text-gray-300">
               {subtitle || (requiredForGame
-                ? `Real SMS verification is required before you can access or play ${requiredForGame}.`
-                : 'Users must verify their phone number via real SMS before accessing or playing any casino games.')}
+                ? `Google authentication is required before you can access or play ${requiredForGame}.`
+                : 'Sign in with your verified Google account to play games and claim your welcome bonus.')}
             </p>
           </div>
 
@@ -118,9 +100,9 @@ export const AuthLoginModal: React.FC<AuthLoginModalProps> = ({
           </button>
         </div>
 
-        {/* Real SMS Phone Authentication Component (Exclusive Authentication Interface) */}
+        {/* Google Authentication Component */}
         <div className="mt-2 flex-1">
-          <PhoneAuthLogin
+          <GoogleAuthLogin
             onSuccess={(u) => {
               if (onSuccess) onSuccess(u);
               onClose();
