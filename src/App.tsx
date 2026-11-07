@@ -14,6 +14,7 @@ import { RoyalMegaLottery } from './components/lottery/RoyalMegaLottery';
 import { DepositPortal } from './components/deposit/DepositPortal';
 import { WithdrawPortal } from './components/withdraw/WithdrawPortal';
 import { AuthLoginModal } from './components/auth/AuthLoginModal';
+import { AuthGate } from './components/auth/AuthGate';
 import {
   Shield,
   Coins,
@@ -27,6 +28,7 @@ import {
 
 function AppContent() {
   const {
+    currentUser,
     firstGameBonusNotification,
     dismissFirstGameBonusNotification,
     hasClaimedFirstGameBonus,
@@ -44,6 +46,17 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // STRICT PROTECTED ROUTE: First-time visitors and unauthenticated users must only see the Sign In component.
+  // Game dashboards, navigation bars, wallet balances, and cashier controls remain entirely hidden until authentication is verified.
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#07090e] text-[#e6edf3] flex flex-col font-sans selection:bg-[#d4af37] selection:text-black relative">
+        <LuxuryMoneyAtmosphere />
+        <AuthGate />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#07090e] text-[#e6edf3] flex flex-col font-sans selection:bg-[#d4af37] selection:text-black relative">
       {/* Luxury Money, Wealth & Gold Particle Background Atmosphere */}
@@ -59,7 +72,7 @@ function AppContent() {
 
       {/* Main View Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 relative z-10">
-        {/* Mobile Sign-In ₹120 Bonus Awarded Banner */}
+        {/* Mobile Sign-In 110 Credits Welcome Bonus Awarded Banner */}
         {phoneBonusNotification && (
           <div className="mb-6 rounded-3xl bg-gradient-to-r from-amber-500 via-[#f5d061] to-amber-500 p-0.5 shadow-[0_0_40px_rgba(245,208,97,0.5)] animate-in zoom-in-95 duration-300">
             <div className="rounded-[22px] bg-gradient-to-r from-[#171204] via-[#221806] to-[#120d03] p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -69,7 +82,7 @@ function AppContent() {
                 </div>
                 <div>
                   <h3 className="font-cinzel text-base sm:text-lg font-black text-[#f5d061] flex items-center gap-2">
-                    <span>🎉 MOBILE SIGN-IN BONUS: ₹120 CREDITED!</span>
+                    <span>🎉 MOBILE SIGN-IN BONUS: 110 CREDITS CREDITED!</span>
                     <span className="text-[10px] font-mono bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">
                       Verified
                     </span>

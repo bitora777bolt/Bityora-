@@ -14,6 +14,7 @@ import { db, auth } from '../lib/firebase';
 
 interface GameContextType {
   currentUser: User | null;
+  isAuthenticated: boolean;
   users: User[];
   transactions: Transaction[];
   gameHistory: GameRecord[];
@@ -67,7 +68,7 @@ interface GameContextType {
   hasClaimedFirstGameBonus: boolean;
   firstGameBonusNotification: string | null;
   dismissFirstGameBonusNotification: () => void;
-  // Firebase Mobile Auth & ₹120 Bonus
+  // Firebase Mobile Auth & 110 Credits Welcome Bonus
   phoneBonusNotification: string | null;
   dismissPhoneBonusNotification: () => void;
   hasClaimedPhoneBonus: boolean;
@@ -84,13 +85,13 @@ const DEFAULT_USERS: User[] = [
     email: 'aarav.vip@bitora.demo',
     phone: '+91 98765 43210',
     role: 'player',
-    balance: 2450,
+    balance: 110, // Fixed initial welcome bonus credits
     isSuspended: false,
     vipTier: 'Gold',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     createdAt: '2026-09-12',
-    totalWagered: 1840,
-    totalWon: 2790,
+    totalWagered: 0,
+    totalWon: 0,
   },
   {
     id: 'ADM-BITORA-01',
@@ -263,9 +264,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [currentUserId, setCurrentUserId] = useState<string>(() => {
     try {
-      return localStorage.getItem('bitora_current_uid') || 'BIT-782914';
+      return localStorage.getItem('bitora_current_uid') || '';
     } catch {
-      return 'BIT-782914';
+      return '';
     }
   });
 
@@ -329,7 +330,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setFirstGameBonusNotification(null);
   };
 
-  // Mobile Sign-In ₹120 Bonus Tracking
+  // Mobile Sign-In 110 Credits Welcome Bonus Tracking
   const [phoneBonusNotification, setPhoneBonusNotification] = useState<string | null>(null);
   const [hasClaimedPhoneBonus, setHasClaimedPhoneBonus] = useState<boolean>(() => {
     try {
@@ -515,6 +516,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const user = users.find(u => u.id === userId);
     if (user) {
       setCurrentUserId(user.id);
+      try {
+        localStorage.setItem('bitora_current_uid', user.id);
+      } catch {}
       sounds.chipClick();
     }
   };
@@ -528,6 +532,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     if (target) {
       setCurrentUserId(target.id);
+      try {
+        localStorage.setItem('bitora_current_uid', target.id);
+      } catch {}
       sounds.chipClick();
       return true;
     }
@@ -542,7 +549,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email,
       phone: phone || '+91 98000 00000',
       role: 'player',
-      balance: 1000, // Starter welcome demo pack
+      balance: 110, // Fixed initial welcome bonus of exactly 110 credits
       isSuspended: false,
       vipTier: 'Bronze',
       avatar: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
@@ -553,17 +560,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setUsers(prev => [newUser, ...prev]);
     setCurrentUserId(newUser.id);
+    try {
+      localStorage.setItem('bitora_current_uid', newUser.id);
+    } catch {}
 
-    // Initial transaction log
+    // Initial transaction log with fixed 110 credits
     const initialTxn: Transaction = {
       id: `TXN-${Date.now().toString().slice(-6)}`,
       userId: newUser.id,
       type: 'TOP_UP',
-      amount: 1000,
-      balanceAfter: 1000,
+      amount: 110,
+      balanceAfter: 110,
       status: 'COMPLETED',
       timestamp: new Date().toLocaleString(),
-      note: 'Starter welcome demo package (₹1,000)',
+      note: 'Fixed Welcome Bonus (+110 Credits)',
     };
     setTransactions(prev => [initialTxn, ...prev]);
 
@@ -573,11 +583,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     sounds.chipClick();
-    // Switch to first player or clear
-    const firstPlayer = users.find(u => u.role === 'player');
-    if (firstPlayer) {
-      setCurrentUserId(firstPlayer.id);
-    }
+    setCurrentUserId('');
+    try {
+      localStorage.removeItem('bitora_current_uid');
+    } catch {}
   };
 
   const updateProfile = (updates: Partial<User>) => {
@@ -605,7 +614,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  // Firebase Mobile Auth Sign-In & ₹120 Bonus Crediting
+  // Firebase Mobile Auth Sign-In & 110 Credits Welcome Bonus Crediting
   const loginWithFirebasePhone = async (
     phoneNumber: string,
     firebaseUid: string
@@ -618,7 +627,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       alreadyClaimed = localStorage.getItem(bonusKey) === 'true';
     } catch {}
 
-    const bonusAmount = 120;
+    const bonusAmount = 110;
     let isNewBonus = false;
 
     // Check if user already exists with this phone or ID
@@ -630,8 +639,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!target) {
       const newId = `TEL-${cleanSuffix}`;
-      const basePack = 1000;
-      const initialBalance = basePack + (alreadyClaimed ? 0 : bonusAmount);
+      // Fixed welcome bonus of exactly 110 credits with zero unverified initial credits
+      const initialBalance = alreadyClaimed ? 0 : bonusAmount;
       const newUser: User = {
         id: newId,
         username: `Player ${cleanDigits.slice(-4) || 'VIP'}`,
@@ -649,39 +658,33 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setUsers(prev => [newUser, ...prev]);
       setCurrentUserId(newUser.id);
+      try {
+        localStorage.setItem('bitora_current_uid', newUser.id);
+      } catch {}
       activeUser = newUser;
 
       const exactTime = formatExactTimestamp();
-      const baseTxn: Transaction = {
-        id: `TXN-${Date.now().toString().slice(-6)}`,
-        userId: newUser.id,
-        type: 'TOP_UP',
-        amount: basePack,
-        balanceAfter: basePack,
-        status: 'COMPLETED',
-        timestamp: exactTime,
-        note: 'Starter Virtual Demo Package (+₹1,000)',
-      };
 
       if (!alreadyClaimed) {
         isNewBonus = true;
         const bonusTxn: Transaction = {
-          id: `BN-${(Date.now() + 1).toString().slice(-6)}`,
+          id: `BN-${Date.now().toString().slice(-6)}`,
           userId: newUser.id,
           type: 'TOP_UP',
           amount: bonusAmount,
           balanceAfter: initialBalance,
           status: 'COMPLETED',
           timestamp: exactTime,
-          note: `🎉 Mobile Number Sign-In Welcome Bonus (+₹${bonusAmount})`,
+          note: `🎉 Verified Mobile Sign-In Fixed Welcome Bonus (+${bonusAmount} Credits)`,
         };
-        setTransactions(prev => [bonusTxn, baseTxn, ...prev]);
-      } else {
-        setTransactions(prev => [baseTxn, ...prev]);
+        setTransactions(prev => [bonusTxn, ...prev]);
       }
     } else {
       activeUser = target;
       setCurrentUserId(target.id);
+      try {
+        localStorage.setItem('bitora_current_uid', target.id);
+      } catch {}
 
       if (!alreadyClaimed) {
         isNewBonus = true;
@@ -698,7 +701,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           balanceAfter: newBalance,
           status: 'COMPLETED',
           timestamp: exactTime,
-          note: `🎉 Mobile Number Sign-In Welcome Bonus (+₹${bonusAmount})`,
+          note: `🎉 Verified Mobile Sign-In Fixed Welcome Bonus (+${bonusAmount} Credits)`,
         };
         setTransactions(prev => [bonusTxn, ...prev]);
       }
@@ -711,7 +714,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch {}
       setHasClaimedPhoneBonus(true);
       setPhoneBonusNotification(
-        `🎉 Mobile Sign-In Bonus Credited! ₹${bonusAmount} has been added to your wallet for authenticating via mobile phone.`
+        `🎉 Mobile Sign-In Bonus Credited! Exactly ${bonusAmount} credits have been added to your wallet balance.`
       );
       sounds.cashOutWin();
 
@@ -1260,6 +1263,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <GameContext.Provider
       value={{
+        isAuthenticated: Boolean(currentUser),
         currentUser,
         users,
         transactions,

@@ -194,12 +194,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               type="button"
               onClick={() => setPhoneAuthOpen(true)}
               className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-2xl bg-gradient-to-r from-amber-500/20 via-[#f5d061]/25 to-amber-500/20 hover:from-amber-500/35 hover:to-[#f5d061]/40 border border-[#f5d061]/60 text-[#f5d061] text-xs font-black shadow-[0_0_15px_rgba(245,208,97,0.25)] transition-all cursor-pointer active:scale-95 group shrink-0"
-              title="Sign In with Mobile OTP & get ₹120 Welcome Bonus!"
+              title="Sign In with Mobile OTP & get 110 Credits Welcome Bonus!"
             >
               <Smartphone className="w-4 h-4 text-[#f5d061] group-hover:scale-110 transition-transform" />
               <span className="font-extrabold tracking-wide">Sign In</span>
               <span className="text-[10px] font-black bg-gradient-to-r from-amber-400 to-yellow-300 text-black px-1.5 py-0.5 rounded-full shadow-sm animate-pulse">
-                +₹120
+                +110 Credits
               </span>
             </button>
 
@@ -407,7 +407,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Mobile Sign In (reCAPTCHA + OTP)</span>
               </div>
               <span className="bg-[#f5d061] text-black font-black text-[10px] px-2 py-0.5 rounded-full">
-                +₹120 Bonus
+                +110 Bonus
               </span>
             </button>
 

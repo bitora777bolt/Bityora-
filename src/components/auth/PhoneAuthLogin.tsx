@@ -233,7 +233,7 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
         setDemoOtp('123456');
         setAuthStep('OTP');
         setResendTimer(60);
-        setSuccessMsg('SMS Provider Sandbox Mode: Enter test verification code 123456 to complete login and claim your ₹120 bonus.');
+        setSuccessMsg('SMS Provider Sandbox Mode: Enter test verification code 123456 to complete login and claim your fixed 110 credits welcome bonus.');
         setTimeout(() => {
           otpInputRef.current?.focus();
         }, 200);
@@ -281,9 +281,9 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
           const bonusRes = await loginWithFirebasePhone(fullPhoneNumber, simUid);
           setAuthStep('AUTHENTICATED');
           if (bonusRes.isNewBonus) {
-            setSuccessMsg(`🎉 Success! ₹${bonusRes.bonusAmount} Welcome Bonus credited to your wallet balance.`);
+            setSuccessMsg(`🎉 Success! Exactly ${bonusRes.bonusAmount} Welcome Bonus credits credited to your wallet balance.`);
           } else {
-            setSuccessMsg(`Phone verified successfully! Current wallet balance: ₹${bonusRes.user.balance.toLocaleString('en-IN')}`);
+            setSuccessMsg(`Phone verified successfully! Current wallet balance: ${bonusRes.user.balance.toLocaleString('en-IN')} Credits`);
           }
           if (onSuccess) {
             onSuccess({
@@ -320,9 +320,9 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
       const bonusRes = await loginWithFirebasePhone(phoneNum, userCredential.user.uid);
 
       if (bonusRes.isNewBonus) {
-        setSuccessMsg(`🎉 Success! ₹${bonusRes.bonusAmount} Welcome Bonus credited to your wallet balance.`);
+        setSuccessMsg(`🎉 Success! Exactly ${bonusRes.bonusAmount} Welcome Bonus credits credited to your wallet balance.`);
       } else {
-        setSuccessMsg(`Phone verified successfully! Current wallet balance: ₹${bonusRes.user.balance.toLocaleString('en-IN')}`);
+        setSuccessMsg(`Phone verified successfully! Current wallet balance: ${bonusRes.user.balance.toLocaleString('en-IN')} Credits`);
       }
 
       if (onSuccess) {
@@ -394,24 +394,24 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
         )}
       </div>
 
-      {/* ₹120 Welcome Bonus Notification Callout */}
+      {/* Fixed 110 Credits Welcome Bonus Notification Callout */}
       <div className="mt-4 p-3 rounded-2xl bg-gradient-to-r from-amber-500/15 via-[#f5d061]/20 to-amber-500/15 border border-[#d4af37]/50 flex items-center justify-between gap-2 shadow-[0_0_20px_rgba(212,175,55,0.15)]">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-yellow-600 flex items-center justify-center text-black font-black text-sm shadow">
-            ₹
+            🎁
           </div>
           <div>
             <p className="text-xs font-black text-[#f5d061] tracking-wide flex items-center gap-1.5">
-              <span>₹120 WELCOME BONUS</span>
+              <span>FIXED 110 CREDITS WELCOME BONUS</span>
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
             </p>
             <p className="text-[10px] text-gray-300">
-              Instant credit to your wallet balance on OTP sign-in!
+              Instant fixed credit to your wallet balance upon verified sign-in!
             </p>
           </div>
         </div>
         <span className="font-mono-numbers font-black text-xs text-black bg-[#f5d061] px-2 py-0.5 rounded-lg shrink-0 shadow">
-          +₹120
+          +110 CREDITS
         </span>
       </div>
 
@@ -671,12 +671,12 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
             </div>
             <div className="flex justify-between text-gray-400">
               <span>Sign-In Bonus:</span>
-              <span className="font-mono text-amber-300 font-bold">₹120 Credited</span>
+              <span className="font-mono text-amber-300 font-bold">110 Credits Credited</span>
             </div>
             <div className="flex justify-between text-gray-400">
               <span>Active Balance:</span>
               <span className="font-mono text-[#f5d061] font-bold">
-                ₹{currentUser ? currentUser.balance.toLocaleString('en-IN') : '1,120'}
+                {currentUser ? currentUser.balance.toLocaleString('en-IN') : '110'} Credits
               </span>
             </div>
           </div>
