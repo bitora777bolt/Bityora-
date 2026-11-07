@@ -1,18 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { PhoneAuthLogin } from './PhoneAuthLogin';
-import { useGame } from '../../context/GameContext';
 import {
-  ShieldCheck,
   Lock,
   Sparkles,
-  Smartphone,
-  CheckCircle2,
-  AlertCircle,
-  Coins,
-  Gamepad2,
-  Users,
   EyeOff,
-  ArrowRight,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 
@@ -21,18 +12,6 @@ interface AuthGateProps {
 }
 
 export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
-  const { loginAs, users, loginWithCredentials } = useGame();
-  const [showDemoLogins, setShowDemoLogins] = useState<boolean>(false);
-  const [quickLoginMsg, setQuickLoginMsg] = useState<string | null>(null);
-
-  const handleQuickDemoLogin = (userId: string) => {
-    loginAs(userId);
-    setQuickLoginMsg('✓ Signed in successfully! Entering VIP Gaming Suite...');
-    if (onAuthenticated) {
-      setTimeout(() => onAuthenticated(), 400);
-    }
-  };
-
   return (
     <div className="min-h-screen w-full flex flex-col justify-center items-center px-4 py-8 sm:py-12 relative overflow-hidden">
       {/* Background ambient lighting */}
@@ -87,7 +66,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
           <div className="pt-2 border-t border-[#d4af37]/30 flex items-center justify-between text-[10px] text-gray-300">
             <span className="flex items-center gap-1">
               <EyeOff className="w-3 h-3 text-amber-400" />
-              <span>Zero unverified credits &bull; Balances completely hidden</span>
+              <span>Real SMS verification &bull; Balances completely hidden</span>
             </span>
             <span className="text-emerald-400 font-mono font-bold">100% Protected</span>
           </div>
@@ -105,54 +84,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onAuthenticated }) => {
           />
         </div>
 
-        {/* Quick Demo Access Accordion for Evaluation / Judges */}
-        <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-3.5 text-center space-y-2">
-          <button
-            type="button"
-            onClick={() => setShowDemoLogins(!showDemoLogins)}
-            className="text-xs font-bold text-gray-400 hover:text-white flex items-center justify-center gap-1.5 mx-auto cursor-pointer transition-colors"
-          >
-            <Users className="w-3.5 h-3.5 text-[#f5d061]" />
-            <span>{showDemoLogins ? 'Hide Demo Tester Accounts' : 'Alternative: Quick Sign-In with Demo VIP Account'}</span>
-          </button>
-
-          {showDemoLogins && (
-            <div className="pt-3 border-t border-[#242c3d] space-y-2 animate-in fade-in duration-200">
-              <p className="text-[11px] text-gray-400">
-                Choose a pre-configured VIP testing profile to verify the protected route unlocks:
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
-                {users.slice(0, 2).map((u) => (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => handleQuickDemoLogin(u.id)}
-                    className="p-2.5 rounded-xl bg-[#121622] hover:bg-[#182030] border border-[#242c3d] hover:border-[#d4af37]/50 text-xs flex items-center justify-between cursor-pointer transition-all group"
-                  >
-                    <div>
-                      <p className="font-bold text-white group-hover:text-[#f5d061] transition-colors">{u.username}</p>
-                      <p className="text-[10px] text-gray-400 font-mono">{u.id} &bull; {u.role.toUpperCase()}</p>
-                    </div>
-                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded-lg flex items-center gap-1">
-                      <span>Enter</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {quickLoginMsg && (
-            <p className="text-xs text-emerald-400 font-bold animate-in fade-in">
-              {quickLoginMsg}
-            </p>
-          )}
-        </div>
-
         {/* Security Disclaimers */}
         <p className="text-[11px] text-center text-gray-500 max-w-sm mx-auto">
-          BITORA operates as an exclusive simulation suite. Protected routes strictly require verified authentication to access games, cashier, and wallet controls.
+          BITORA operates as an exclusive simulation suite. Protected routes strictly require real SMS verification to access games, cashier, and wallet controls.
         </p>
       </div>
     </div>

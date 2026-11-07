@@ -107,9 +107,6 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
     return () => clearInterval(interval);
   }, [resendTimer]);
 
-  // Demo / Sandbox fallback state for when Firebase Phone provider is not enabled in console
-  const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
-  const [demoOtp, setDemoOtp] = useState<string>('');
 
   // Properly check, clear, and destroy any existing RecaptchaVerifier instance and DOM nodes
   const cleanupRecaptchaVerifier = () => {
@@ -211,10 +208,9 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
       
       setConfirmationResult(confirmation);
       window.confirmationResult = confirmation;
-      setIsDemoMode(false);
       setAuthStep('OTP');
       setResendTimer(60);
-      setSuccessMsg(`OTP sent successfully to ${fullPhoneNumber}`);
+      setSuccessMsg(`SMS verification code sent successfully to ${fullPhoneNumber}`);
       
       // Auto-focus the OTP input after transition
       setTimeout(() => {
@@ -223,41 +219,23 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
     } catch (err: any) {
       cleanupRecaptchaVerifier();
 
-      // Handle operation-not-allowed or provider configuration issues gracefully
-      const isOpNotAllowed =
-        err?.code === 'auth/operation-not-allowed' ||
-        (err?.message && (err.message.includes('operation-not-allowed') || err.message.includes('OPERATION_NOT_ALLOWED')));
-
-      if (isOpNotAllowed) {
-        setIsDemoMode(true);
-        setDemoOtp('123456');
-        setAuthStep('OTP');
-        setResendTimer(60);
-        setSuccessMsg('SMS Provider Sandbox Mode: Enter test verification code 123456 to complete login and claim your fixed 110 credits welcome bonus.');
-        setTimeout(() => {
-          otpInputRef.current?.focus();
-        }, 200);
+      if (err?.code === 'auth/operation-not-allowed') {
+        setError('Phone Authentication is not enabled in Firebase Console. Please enable Phone provider in Firebase Authentication to send real SMS verification codes.');
       } else if (err?.code === 'auth/invalid-phone-number') {
-        setError('Invalid phone number format. Please check the country code and digits.');
+        setError('Invalid phone number format. Please check the country code and enter a valid mobile number.');
       } else if (err?.code === 'auth/too-many-requests') {
-        setIsDemoMode(true);
-        setDemoOtp('123456');
-        setAuthStep('OTP');
-        setSuccessMsg('Rate limit active on SMS provider. Switched to test code 123456.');
+        setError('Too many SMS requests sent to this number. Please wait a few minutes before trying again.');
       } else if (err?.code === 'auth/billing-not-enabled' || err?.code === 'auth/quota-exceeded') {
-        setIsDemoMode(true);
-        setDemoOtp('123456');
-        setAuthStep('OTP');
-        setSuccessMsg('SMS quota limit reached on Firebase. Demo test code active: enter 123456.');
+        setError('Firebase SMS delivery quota exceeded. Please contact administrator.');
       } else {
-        setError(err?.message || 'Failed to send OTP. Please check your connection.');
+        setError(err?.message || 'Failed to send SMS verification code. Please check your connection and phone number.');
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // 2. Verify OTP & Complete Sign In
+  // 2. Verify Real SMS OTP & Complete Sign In
   const handleVerifyOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError('');
@@ -265,46 +243,15 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
 
     const cleanOtp = otp.trim();
     if (!cleanOtp || cleanOtp.length !== 6) {
-      setError('Please enter the complete 6-digit OTP code.');
+      setError('Please enter the complete 6-digit OTP code received via SMS.');
       return;
     }
 
     const cleanNumber = phoneNumber.replace(/[\s-]/g, '');
     const fullPhoneNumber = `${countryCode}${cleanNumber}`;
 
-    // If in demo test mode
-    if (isDemoMode) {
-      if (cleanOtp === demoOtp || cleanOtp === '123456') {
-        setLoading(true);
-        try {
-          const simUid = `tel-user-${cleanNumber || Date.now().toString().slice(-6)}`;
-          const bonusRes = await loginWithFirebasePhone(fullPhoneNumber, simUid);
-          setAuthStep('AUTHENTICATED');
-          if (bonusRes.isNewBonus) {
-            setSuccessMsg(`🎉 Success! Exactly ${bonusRes.bonusAmount} Welcome Bonus credits credited to your wallet balance.`);
-          } else {
-            setSuccessMsg(`Phone verified successfully! Current wallet balance: ${bonusRes.user.balance.toLocaleString('en-IN')} Credits`);
-          }
-          if (onSuccess) {
-            onSuccess({
-              uid: simUid,
-              phoneNumber: fullPhoneNumber,
-            } as User);
-          }
-        } catch (err: any) {
-          setError(err.message || 'Verification failed. Please try again.');
-        } finally {
-          setLoading(false);
-        }
-        return;
-      } else {
-        setError('Invalid test code. Please enter 123456.');
-        return;
-      }
-    }
-
     if (!confirmationResult) {
-      setError('Session expired. Please request a new OTP code.');
+      setError('SMS verification session expired. Please request a new verification code.');
       setAuthStep('PHONE');
       return;
     }
@@ -330,11 +277,11 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
       }
     } catch (err: any) {
       if (err?.code === 'auth/invalid-verification-code') {
-        setError('Invalid OTP code. Please enter the correct 6-digit code received via SMS.');
+        setError('Invalid SMS verification code. Please enter the correct 6-digit code received on your mobile phone.');
       } else if (err?.code === 'auth/code-expired') {
-        setError('OTP code has expired. Please request a new code.');
+        setError('SMS verification code has expired. Please request a new OTP.');
       } else {
-        setError(err.message || 'Verification failed. Please try again.');
+        setError(err.message || 'SMS verification failed. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -477,23 +424,6 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
               <p className="text-[10px] sm:text-xs text-gray-500 mt-1.5">
                 Formatted: <span className="font-mono text-gray-400">{countryCode} {phoneNumber || 'XXXXXXXXXX'}</span>
               </p>
-
-              {/* Quick Test Helper for Instant Sandbox Verification */}
-              <div className="mt-2.5 flex items-center justify-between p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs">
-                <span className="text-[11px] text-amber-300 font-mono">
-                  Test Number: <strong className="text-white">+91 98765 43210</strong>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCountryCode('+91');
-                    setPhoneNumber('9876543210');
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-amber-400 text-black font-black text-[10px] hover:bg-yellow-300 cursor-pointer shadow-sm active:scale-95 transition-all"
-                >
-                  Fill Test Number
-                </button>
-              </div>
             </div>
 
             {/* Invisible reCAPTCHA container for seamless background verification */}
@@ -579,25 +509,13 @@ export const PhoneAuthLogin: React.FC<PhoneAuthLoginProps> = ({
                   maxLength={6}
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  placeholder="123456"
+                  placeholder="••••••"
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
                   disabled={loading}
                   className="w-full h-14 sm:h-16 bg-[#121622] border-2 border-[#d4af37]/60 focus:border-[#f5d061] rounded-2xl pl-12 pr-4 text-xl sm:text-2xl font-mono-numbers font-black tracking-widest text-center text-[#f5d061] placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-[#d4af37]/50 shadow-inner"
                 />
               </div>
-              {isDemoMode && (
-                <div className="mt-2 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-between text-xs animate-in fade-in">
-                  <span className="text-amber-300 font-mono">Sandbox Demo Code: <strong className="text-white">123456</strong></span>
-                  <button
-                    type="button"
-                    onClick={() => setOtp('123456')}
-                    className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-300 text-black font-black text-[10px] hover:brightness-110 cursor-pointer shadow-sm active:scale-95"
-                  >
-                    Auto Fill 123456
-                  </button>
-                </div>
-              )}
             </div>
 
             {/* Resend OTP Action & Timer */}

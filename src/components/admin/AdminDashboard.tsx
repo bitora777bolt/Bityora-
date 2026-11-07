@@ -85,14 +85,9 @@ export const AdminDashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Quick Switch to Admin Account */}
-          <button
-            onClick={() => loginAs('ADM-BITORA-01')}
-            className="w-full py-3.5 rounded-xl font-bold text-black bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:from-[#f5d061] hover:to-[#d4af37] shadow-[0_0_20px_rgba(212,175,55,0.3)] transition-all uppercase tracking-wider text-xs flex items-center justify-center gap-2 cursor-pointer active:scale-95"
-          >
-            <span>Authorize as Chief Supervisor (ADM-BITORA-01)</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <p className="text-xs text-red-400 font-semibold text-center">
+            Access Restricted: Please sign in with an authorized administrator account to manage this portal.
+          </p>
         </div>
       </div>
     );

@@ -348,39 +348,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </button>
                   </div>
 
-                  {/* Fast Switcher between Demo Accounts */}
-                  <div className="p-1.5">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-1">
-                      Quick Switch Account (Demo)
-                    </p>
-                    <div className="space-y-1">
-                      {users.map(u => (
-                        <button
-                          key={u.id}
-                          onClick={() => {
-                            loginAs(u.id);
-                            setUserDropdownOpen(false);
-                          }}
-                          className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors ${
-                            currentUser?.id === u.id
-                              ? 'bg-[#d4af37]/15 text-[#f5d061] border border-[#d4af37]/30'
-                              : 'hover:bg-white/5 text-gray-300'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                            <div>
-                              <p className="font-semibold leading-tight">{u.username}</p>
-                              <p className="text-[10px] text-gray-500 font-mono-numbers">{u.id} &bull; {u.role.toUpperCase()}</p>
-                            </div>
-                          </div>
-                          <span className="font-mono-numbers font-bold text-[11px] text-[#f5d061]">
-                            ₹{u.balance}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
 
                   <div className="border-t border-[#242c3d] pt-1 mt-1">
                     <button
