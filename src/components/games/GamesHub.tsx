@@ -23,6 +23,8 @@ import {
   ChevronRight,
   Coins,
   Ticket,
+  Lock,
+  Play,
 } from 'lucide-react';
 
 export type GameKey =
@@ -43,6 +45,7 @@ export type GameKey =
 interface GamesHubProps {
   initialGame?: GameKey | null;
   onBackToLobby?: () => void;
+  onRequireAuth?: (gameId: GameKey, gameTitle: string) => void;
 }
 
 interface GameCardInfo {
@@ -62,6 +65,7 @@ interface GameCardInfo {
 export const GamesHub: React.FC<GamesHubProps> = ({
   initialGame = null,
   onBackToLobby,
+  onRequireAuth,
 }) => {
   const { currentUser } = useGame();
   const [activeGame, setActiveGame] = useState<GameKey | null>(initialGame);
@@ -76,6 +80,13 @@ export const GamesHub: React.FC<GamesHubProps> = ({
   }, [initialGame]);
 
   const handleOpenGame = (gameId: GameKey) => {
+    const game = gamesList.find((g) => g.id === gameId);
+    if (!currentUser) {
+      if (onRequireAuth) {
+        onRequireAuth(gameId, game?.title || 'Casino Game');
+      }
+      return;
+    }
     setActiveGame(gameId);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -269,6 +280,57 @@ export const GamesHub: React.FC<GamesHubProps> = ({
 
   // If a game is active: Render ONLY that single game with a prominent top back bar
   if (activeGame && activeGameData) {
+    if (!currentUser) {
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between bg-[#0c0f17] border border-[#242c3d] p-3 sm:p-4 rounded-2xl">
+            <button
+              onClick={handleReturnToLobby}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-[#171d2b] hover:bg-[#222a3d] border border-[#d4af37]/50 text-[#f5d061] transition-all cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>← Back to All Games</span>
+            </button>
+            <span className="text-xs font-bold text-amber-400 font-mono">🔒 AUTHENTICATION REQUIRED</span>
+          </div>
+
+          <div className="rounded-3xl bg-gradient-to-b from-[#181c2b] via-[#0f131f] to-[#07090e] border-2 border-[#d4af37]/60 p-8 sm:p-14 text-center space-y-6 shadow-[0_0_60px_rgba(212,175,55,0.25)]">
+            <div className="w-20 h-20 rounded-3xl bg-amber-500/20 border-2 border-[#d4af37] flex items-center justify-center mx-auto text-[#f5d061] shadow-[0_0_30px_rgba(212,175,55,0.4)]">
+              <Lock className="w-10 h-10 text-[#f5d061]" />
+            </div>
+
+            <div className="space-y-2 max-w-lg mx-auto">
+              <span className="text-[11px] font-black uppercase tracking-widest text-[#f5d061] bg-amber-500/10 border border-amber-500/30 px-3.5 py-1 rounded-full">
+                MANDATORY ACCESS GATE
+              </span>
+              <h2 className="font-cinzel text-2xl sm:text-3xl font-black text-white">
+                SIGN IN OR REGISTER TO PLAY {activeGameData.title}
+              </h2>
+              <p className="text-sm text-gray-300 leading-relaxed">
+                You must sign in or register before you can access or play {activeGameData.title}. All verified new accounts instantly receive a fixed <strong className="text-[#f5d061]">110 Credits Welcome Bonus</strong>!
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <button
+                onClick={() => onRequireAuth ? onRequireAuth(activeGame, activeGameData.title) : null}
+                className="py-3.5 px-8 rounded-xl font-black text-black bg-gradient-to-r from-amber-400 via-[#f5d061] to-yellow-500 hover:brightness-110 shadow-[0_0_30px_rgba(212,175,55,0.4)] text-xs sm:text-sm uppercase tracking-wider cursor-pointer active:scale-95 flex items-center gap-2"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                <span>PLAY NOW &bull; SIGN IN / REGISTER (+110 CREDITS)</span>
+              </button>
+              <button
+                onClick={handleReturnToLobby}
+                className="py-3.5 px-6 rounded-xl font-bold text-gray-400 hover:text-white bg-[#121622] border border-[#242c3d] text-xs sm:text-sm cursor-pointer"
+              >
+                Back to Lobby
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4">
         {/* Sleek Top Bar with Back Button & Real-Time Stats */}
@@ -394,7 +456,14 @@ export const GamesHub: React.FC<GamesHubProps> = ({
               <span className={`text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full ${game.badgeColor}`}>
                 {game.badge}
               </span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              {!currentUser ? (
+                <span className="text-[8px] font-bold text-amber-300 bg-black/80 border border-amber-500/40 px-1 py-0.5 rounded-md flex items-center gap-0.5">
+                  <Lock className="w-2 h-2 text-amber-400" />
+                  <span>Locked</span>
+                </span>
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              )}
             </div>
 
             {/* Handcrafted 3D Luxury Graphic Icon */}
@@ -420,7 +489,8 @@ export const GamesHub: React.FC<GamesHubProps> = ({
                 }}
                 className={`w-full py-1.5 sm:py-2 rounded-xl text-[11px] font-black bg-gradient-to-r ${game.playBtnGradient} shadow-sm flex items-center justify-center gap-1 group-hover:shadow-md transition-all cursor-pointer active:scale-95`}
               >
-                <span>PLAY</span>
+                <Play className="w-3 h-3 fill-current" />
+                <span>PLAY NOW</span>
                 <ChevronRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
               </button>
             </div>

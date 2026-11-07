@@ -40,22 +40,58 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<string>('home');
   const [cashierOpen, setCashierOpen] = useState<boolean>(false);
   const [exportOpen, setExportOpen] = useState<boolean>(false);
+  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
+  const [authModalDetails, setAuthModalDetails] = useState<{
+    title?: string;
+    subtitle?: string;
+    requiredForGame?: string;
+    pendingTab?: string;
+  }>({});
+
+  const requireAuthToPlay = (targetTab: string = 'games', gameTitle?: string) => {
+    if (!currentUser) {
+      setAuthModalDetails({
+        title: gameTitle ? `MANDATORY AUTHENTICATION: PLAY ${gameTitle.toUpperCase()}` : 'SIGN IN OR REGISTER TO PLAY',
+        subtitle: gameTitle
+          ? `You must sign in or register before you can access or play ${gameTitle}. Verified players receive a fixed 110 Credits Welcome Bonus!`
+          : 'Users must sign in or register before they can access or play any casino games. Claim 110 Credits upon sign in!',
+        requiredForGame: gameTitle,
+        pendingTab: targetTab,
+      });
+      setAuthModalOpen(true);
+      return false;
+    }
+    return true;
+  };
 
   const handleSelectTab = (tab: string) => {
+    // Restrict all game access until authentication is complete
+    const isGameTab = tab === 'games' || tab.startsWith('games_') || tab === 'lottery';
+    if (isGameTab && !currentUser) {
+      const gameTitles: Record<string, string> = {
+        games: 'All 12 Casino Games',
+        games_mining_rush: 'Mining Rush 1000X',
+        games_fortune_tiger: 'Fortune Tiger 500X',
+        games_roulette: 'European Roulette VIP',
+        games_matka_poker: 'Matka Poker 200X',
+        games_diamond_mines: 'Diamond Mines',
+        games_candy_bonanza: 'Candy Bonanza 1000X',
+        games_mines: '24-Tile Grenade Mines',
+        games_tower: 'Royal Tower Climber',
+        games_trading: 'Crypto Crash Trading',
+        games_fortune: 'Fortune Wheel',
+        games_puzzle: 'Bank Vault Cipher',
+        games_chicken: 'Golden Road Chicken',
+        games_aviator: 'Original Aviator 1000X',
+        lottery: '₹5 Crore Royal Mega Lottery',
+      };
+      requireAuthToPlay(tab, gameTitles[tab] || 'Game');
+      return;
+    }
+
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-
-  // STRICT PROTECTED ROUTE: First-time visitors and unauthenticated users must only see the Sign In component.
-  // Game dashboards, navigation bars, wallet balances, and cashier controls remain entirely hidden until authentication is verified.
-  if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-[#07090e] text-[#e6edf3] flex flex-col font-sans selection:bg-[#d4af37] selection:text-black relative">
-        <LuxuryMoneyAtmosphere />
-        <AuthGate />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#e6edf3] flex flex-col font-sans selection:bg-[#d4af37] selection:text-black relative">
@@ -182,30 +218,123 @@ function AppContent() {
         {activeTab === 'home' && (
           <HomeHub
             onSelectTab={handleSelectTab}
-            onOpenCashier={() => setCashierOpen(true)}
+            onOpenCashier={() => {
+              if (!currentUser) {
+                requireAuthToPlay('home', 'Unified Wallet');
+              } else {
+                setCashierOpen(true);
+              }
+            }}
+            onRequireAuth={(targetTab, gameTitle) => requireAuthToPlay(targetTab, gameTitle)}
           />
         )}
 
-        {activeTab === 'games' && <GamesHub initialGame={null} />}
+        {activeTab === 'games' && (
+          <GamesHub
+            initialGame={null}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay(`games_${gameId}`, gameTitle)}
+          />
+        )}
         {activeTab === 'lottery' && (
           <div className="space-y-6">
-            <RoyalMegaLottery />
-            <GamesHub initialGame={null} />
+            <RoyalMegaLottery onRequireAuth={() => requireAuthToPlay('lottery', '₹5 Crore Royal Mega Lottery')} />
+            <GamesHub
+              initialGame={null}
+              onRequireAuth={(gameId, gameTitle) => requireAuthToPlay(`games_${gameId}`, gameTitle)}
+            />
           </div>
         )}
-        {activeTab === 'games_mining_rush' && <GamesHub initialGame="mining_rush" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_fortune_tiger' && <GamesHub initialGame="fortune_tiger" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_roulette' && <GamesHub initialGame="roulette" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_matka_poker' && <GamesHub initialGame="matka_poker" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_diamond_mines' && <GamesHub initialGame="diamond_mines" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_candy_bonanza' && <GamesHub initialGame="candy_bonanza" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_mines' && <GamesHub initialGame="mines" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_tower' && <GamesHub initialGame="tower" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_trading' && <GamesHub initialGame="trading" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_fortune' && <GamesHub initialGame="fortune" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_puzzle' && <GamesHub initialGame="puzzle" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_chicken' && <GamesHub initialGame="chicken" onBackToLobby={() => setActiveTab('games')} />}
-        {activeTab === 'games_aviator' && <GamesHub initialGame="aviator" onBackToLobby={() => setActiveTab('games')} />}
+        {activeTab === 'games_mining_rush' && (
+          <GamesHub
+            initialGame="mining_rush"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_mining_rush', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_fortune_tiger' && (
+          <GamesHub
+            initialGame="fortune_tiger"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_fortune_tiger', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_roulette' && (
+          <GamesHub
+            initialGame="roulette"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_roulette', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_matka_poker' && (
+          <GamesHub
+            initialGame="matka_poker"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_matka_poker', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_diamond_mines' && (
+          <GamesHub
+            initialGame="diamond_mines"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_diamond_mines', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_candy_bonanza' && (
+          <GamesHub
+            initialGame="candy_bonanza"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_candy_bonanza', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_mines' && (
+          <GamesHub
+            initialGame="mines"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_mines', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_tower' && (
+          <GamesHub
+            initialGame="tower"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_tower', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_trading' && (
+          <GamesHub
+            initialGame="trading"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_trading', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_fortune' && (
+          <GamesHub
+            initialGame="fortune"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_fortune', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_puzzle' && (
+          <GamesHub
+            initialGame="puzzle"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_puzzle', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_chicken' && (
+          <GamesHub
+            initialGame="chicken"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_chicken', gameTitle)}
+          />
+        )}
+        {activeTab === 'games_aviator' && (
+          <GamesHub
+            initialGame="aviator"
+            onBackToLobby={() => setActiveTab('games')}
+            onRequireAuth={(gameId, gameTitle) => requireAuthToPlay('games_aviator', gameTitle)}
+          />
+        )}
 
         {activeTab === 'payment_demo' && <PaymentDemoScreen />}
         {activeTab === 'deposit' && (
@@ -232,6 +361,22 @@ function AppContent() {
           />
         )}
       </main>
+
+      {/* Mandatory Authentication Modal for Games Access & Registration */}
+      <AuthLoginModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        title={authModalDetails.title}
+        subtitle={authModalDetails.subtitle}
+        requiredForGame={authModalDetails.requiredForGame}
+        onSuccess={() => {
+          setAuthModalOpen(false);
+          if (authModalDetails.pendingTab) {
+            setActiveTab(authModalDetails.pendingTab);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }}
+      />
 
       {/* Virtual Cashier Modal */}
       <CashierModal

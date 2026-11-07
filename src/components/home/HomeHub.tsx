@@ -12,15 +12,30 @@ import {
   Award,
   Zap,
   CheckCircle,
+  Play,
+  Lock,
 } from 'lucide-react';
 
 interface HomeHubProps {
   onSelectTab: (tab: string) => void;
   onOpenCashier: () => void;
+  onRequireAuth?: (targetTab: string, gameTitle?: string) => void;
 }
 
-export const HomeHub: React.FC<HomeHubProps> = ({ onSelectTab, onOpenCashier }) => {
+export const HomeHub: React.FC<HomeHubProps> = ({ onSelectTab, onOpenCashier, onRequireAuth }) => {
   const { currentUser } = useGame();
+
+  const handlePlayNow = (gameTab: string, gameTitle: string) => {
+    if (!currentUser) {
+      if (onRequireAuth) {
+        onRequireAuth(gameTab, gameTitle);
+      } else {
+        onSelectTab(gameTab);
+      }
+      return;
+    }
+    onSelectTab(gameTab);
+  };
 
   const gamesFeatured = [
     {
@@ -183,10 +198,10 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onSelectTab, onOpenCashier }) 
           {/* Quick CTA Buttons */}
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
-              onClick={() => onSelectTab('games')}
+              onClick={() => handlePlayNow('games', 'All 12 Casino Games')}
               className="py-3.5 px-6 rounded-xl font-black text-black bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:from-[#f5d061] hover:to-[#d4af37] shadow-[0_0_25px_rgba(212,175,55,0.4)] transition-all uppercase tracking-wider text-xs sm:text-sm flex items-center gap-2 cursor-pointer active:scale-95"
             >
-              <span>Explore All 12 Games</span>
+              <span>PLAY NOW &bull; ALL 12 GAMES</span>
               <ArrowRight className="w-4 h-4" />
             </button>
 
@@ -241,7 +256,7 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onSelectTab, onOpenCashier }) 
           </div>
 
           <button
-            onClick={() => onSelectTab('games')}
+            onClick={() => handlePlayNow('games', 'All 12 Casino Games')}
             className="text-xs font-bold text-[#f5d061] hover:underline flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#d4af37]/10 border border-[#d4af37]/30"
           >
             <span>View All 12 Games</span>
@@ -254,14 +269,20 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onSelectTab, onOpenCashier }) 
           {gamesFeatured.map(game => (
             <div
               key={game.id}
-              onClick={() => onSelectTab(game.tab)}
+              onClick={() => handlePlayNow(game.tab, game.title)}
               className={`group rounded-3xl bg-gradient-to-b ${game.bg} border ${game.border} p-4 sm:p-5 transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_35px_rgba(212,175,55,0.35)] cursor-pointer flex flex-col justify-between`}
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-black/50 text-[#f5d061] border border-[#d4af37]/40">
                   {game.badge}
                 </span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                {!currentUser ? (
+                  <span className="text-[9px] font-bold text-amber-400 bg-black/70 border border-amber-500/40 px-1.5 py-0.5 rounded-full">
+                    🔒 Sign In to Play
+                  </span>
+                ) : (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                )}
               </div>
 
               {/* Handcrafted Expensive 3D Luxury Icon */}
@@ -279,9 +300,14 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onSelectTab, onOpenCashier }) 
                   </p>
                 </div>
                 <button
-                  className={`w-full py-2 rounded-xl text-xs font-black bg-gradient-to-r ${game.btnGrad} shadow-md`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePlayNow(game.tab, game.title);
+                  }}
+                  className={`w-full py-2.5 rounded-xl text-xs font-black bg-gradient-to-r ${game.btnGrad} shadow-md flex items-center justify-center gap-1.5 transition-all hover:brightness-110 active:scale-95 cursor-pointer`}
                 >
-                  PLAY NOW
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>PLAY NOW</span>
                 </button>
               </div>
             </div>

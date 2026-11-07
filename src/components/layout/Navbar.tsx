@@ -19,6 +19,8 @@ import {
   Trophy,
   Ticket,
   Smartphone,
+  Lock,
+  UserPlus,
 } from 'lucide-react';
 import { AccountStatementModal } from '../wallet/AccountStatementModal';
 import { AuthLoginModal } from '../auth/AuthLoginModal';
@@ -204,56 +206,71 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             {/* UNIFIED SINGLE WINNINGS BALANCE COLUMN (Used directly for all bets & payouts) */}
-            <div
-              onClick={() => {
-                setStatementTab('STATEMENT');
-                setStatementModalOpen(true);
-              }}
-              className="bg-gradient-to-r from-[#121724] via-[#161d2d] to-[#0f1420] border border-[#d4af37]/40 hover:border-[#f5d061] rounded-2xl p-1 sm:p-1.5 flex items-center gap-2 shadow-[0_0_20px_rgba(212,175,55,0.15)] cursor-pointer transition-all hover:scale-[1.02]"
-              title="Click to view detailed Statement & Transactions History"
-            >
-              <div className="pl-2 sm:pl-2.5">
-                <div className="flex items-center gap-1">
-                  <Coins className="w-3.5 h-3.5 text-[#f5d061]" />
-                  <span className="text-[10px] text-gray-300 uppercase tracking-wider font-bold">
-                    Balance
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-1">
-                  <span className="font-mono-numbers text-sm sm:text-base font-black text-[#f5d061]">
-                    ₹{currentUser ? currentUser.balance.toLocaleString('en-IN') : 0}
-                  </span>
-                </div>
-              </div>
-
-              {/* Deposit Quick Button */}
+            {!currentUser ? (
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveTab('deposit');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-[11px] px-2 sm:px-2.5 py-1.5 rounded-xl flex items-center gap-1 transition-all shadow-md active:scale-95 cursor-pointer"
-                title="Deposit Funds (Select from ₹110, ₹200, ₹400, ₹800, ₹1000, ₹1600, ₹5000)"
+                onClick={() => setPhoneAuthOpen(true)}
+                className="bg-gradient-to-r from-[#121724] via-[#161d2d] to-[#0f1420] border border-[#d4af37]/40 hover:border-[#f5d061] rounded-2xl px-3 py-1.5 sm:py-2 flex items-center gap-2 shadow-[0_0_20px_rgba(212,175,55,0.15)] cursor-pointer transition-all hover:scale-[1.02]"
+                title="Sign in or register to view balance and claim 110 Credits"
               >
-                <span>+ Deposit</span>
+                <Lock className="w-3.5 h-3.5 text-[#f5d061]" />
+                <div className="text-left">
+                  <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider block">Balance</span>
+                  <span className="text-xs font-black text-[#f5d061]">Sign In to View</span>
+                </div>
               </button>
-
-              {/* Withdraw Quick Button */}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setStatementTab('WITHDRAW');
+            ) : (
+              <div
+                onClick={() => {
+                  setStatementTab('STATEMENT');
                   setStatementModalOpen(true);
                 }}
-                className="bg-[#182132] hover:bg-[#202c42] text-amber-300 border border-amber-500/40 font-black text-[11px] px-2 sm:px-2.5 py-1.5 rounded-xl flex items-center gap-1 transition-all shadow-md active:scale-95 cursor-pointer"
-                title="Withdraw Funds"
+                className="bg-gradient-to-r from-[#121724] via-[#161d2d] to-[#0f1420] border border-[#d4af37]/40 hover:border-[#f5d061] rounded-2xl p-1 sm:p-1.5 flex items-center gap-2 shadow-[0_0_20px_rgba(212,175,55,0.15)] cursor-pointer transition-all hover:scale-[1.02]"
+                title="Click to view detailed Statement & Transactions History"
               >
-                <span>Withdraw</span>
-              </button>
-            </div>
+                <div className="pl-2 sm:pl-2.5">
+                  <div className="flex items-center gap-1">
+                    <Coins className="w-3.5 h-3.5 text-[#f5d061]" />
+                    <span className="text-[10px] text-gray-300 uppercase tracking-wider font-bold">
+                      Balance
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="font-mono-numbers text-sm sm:text-base font-black text-[#f5d061]">
+                      ₹{currentUser.balance.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Deposit Quick Button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveTab('deposit');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-[11px] px-2 sm:px-2.5 py-1.5 rounded-xl flex items-center gap-1 transition-all shadow-md active:scale-95 cursor-pointer"
+                  title="Deposit Funds (Select from ₹110, ₹200, ₹400, ₹800, ₹1000, ₹1600, ₹5000)"
+                >
+                  <span>+ Deposit</span>
+                </button>
+
+                {/* Withdraw Quick Button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setStatementTab('WITHDRAW');
+                    setStatementModalOpen(true);
+                  }}
+                  className="bg-[#182132] hover:bg-[#202c42] text-amber-300 border border-amber-500/40 font-black text-[11px] px-2 sm:px-2.5 py-1.5 rounded-xl flex items-center gap-1 transition-all shadow-md active:scale-95 cursor-pointer"
+                  title="Withdraw Funds"
+                >
+                  <span>Withdraw</span>
+                </button>
+              </div>
+            )}
 
             {/* Sound Toggle */}
             <button

@@ -14,6 +14,7 @@ import {
   Gift,
   RefreshCw,
   AlertTriangle,
+  Lock,
 } from 'lucide-react';
 
 interface RecentWinner {
@@ -24,7 +25,11 @@ interface RecentWinner {
   timeAgo: string;
 }
 
-export const RoyalMegaLottery: React.FC = () => {
+interface RoyalMegaLotteryProps {
+  onRequireAuth?: () => void;
+}
+
+export const RoyalMegaLottery: React.FC<RoyalMegaLotteryProps> = ({ onRequireAuth }) => {
   const { currentUser, recordGameRound } = useGame();
 
   // Live Growing Jackpot Amount
@@ -450,19 +455,34 @@ export const RoyalMegaLottery: React.FC = () => {
           </div>
 
           {/* Primary Action Button */}
-          <button
-            onClick={handlePlayLottery}
-            disabled={isDrawing || !currentUser || currentUser.balance < ticketCost}
-            className="w-full py-4 rounded-2xl font-black text-black bg-gradient-to-r from-[#fde047] via-[#f59e0b] to-[#d97706] hover:brightness-110 shadow-[0_0_30px_rgba(245,158,11,0.5)] transition-all uppercase tracking-wider text-sm sm:text-base flex flex-col items-center justify-center cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <div className="flex items-center gap-2">
-              <Zap className="w-5 h-5 fill-current" />
-              <span>{isDrawing ? 'ROLLING DRAW DRUM...' : `BUY LUCKY TICKET (₹${ticketCost})`}</span>
-            </div>
-            <span className="text-[11px] font-sans font-bold text-black/80 mt-0.5">
-              Win up to ₹{(ticketCost * 500).toLocaleString('en-IN')} Instantly
-            </span>
-          </button>
+          {!currentUser ? (
+            <button
+              onClick={onRequireAuth}
+              className="w-full py-4 rounded-2xl font-black text-black bg-gradient-to-r from-[#fde047] via-[#f59e0b] to-[#d97706] hover:brightness-110 shadow-[0_0_30px_rgba(245,158,11,0.5)] transition-all uppercase tracking-wider text-sm sm:text-base flex flex-col items-center justify-center cursor-pointer active:scale-95"
+            >
+              <div className="flex items-center gap-2">
+                <Lock className="w-5 h-5 text-black" />
+                <span>PLAY NOW &bull; SIGN IN / REGISTER (+110 CREDITS)</span>
+              </div>
+              <span className="text-[11px] font-sans font-bold text-black/80 mt-0.5">
+                Sign in or register to buy tickets with 110 Welcome Bonus credits
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={handlePlayLottery}
+              disabled={isDrawing || currentUser.balance < ticketCost}
+              className="w-full py-4 rounded-2xl font-black text-black bg-gradient-to-r from-[#fde047] via-[#f59e0b] to-[#d97706] hover:brightness-110 shadow-[0_0_30px_rgba(245,158,11,0.5)] transition-all uppercase tracking-wider text-sm sm:text-base flex flex-col items-center justify-center cursor-pointer active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <div className="flex items-center gap-2">
+                <Zap className="w-5 h-5 fill-current" />
+                <span>{isDrawing ? 'ROLLING DRAW DRUM...' : `BUY LUCKY TICKET (₹${ticketCost})`}</span>
+              </div>
+              <span className="text-[11px] font-sans font-bold text-black/80 mt-0.5">
+                Win up to ₹{(ticketCost * 500).toLocaleString('en-IN')} Instantly
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
