@@ -35,7 +35,7 @@ import {
   Ban,
   Sliders,
 } from 'lucide-react';
-import { User, UserAccountStatus, RiskLevel, GameRecord, PaymentMethodType } from '../../types';
+import { User, UserAccountStatus, RiskLevel, GameRecord, PaymentMethodType, isHardcodedAdminEmail } from '../../types';
 import { DEFAULT_PAYMENT_METHOD_CONFIGS } from '../../utils/upiDeposit';
 
 interface AdminDashboardProps {
@@ -139,7 +139,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
   // System Prompt copy state
   const [promptCopied, setPromptCopied] = useState(false);
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || isHardcodedAdminEmail(currentUser?.email);
 
   // If not admin, show login gate
   if (!isAdmin) {
@@ -169,9 +169,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
               <span className="font-bold text-gray-300">{currentUser?.role.toUpperCase() || 'GUEST'}</span>
             </div>
             <div className="flex justify-between text-gray-400">
+              <span>Your Current Email:</span>
+              <span className="font-mono text-gray-300 text-[11px] truncate max-w-[200px]">{currentUser?.email || 'Not Signed In'}</span>
+            </div>
+            <div className="flex justify-between text-gray-400">
               <span>Your Current ID:</span>
               <span className="font-mono-numbers text-[#f5d061]">{currentUser?.id || '-'}</span>
             </div>
+          </div>
+
+          {/* Hardcoded Administrator Notice & Direct Auth Button */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/40 via-[#181308] to-amber-950/40 border border-amber-500/40 text-left space-y-2.5">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-[#ffd700]" />
+              <span className="text-xs font-black text-amber-300">
+                Hardcoded Sovereign Administrator
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-300 leading-relaxed">
+              <strong className="text-white">jatinrathodeklo@gmail.com</strong> is configured as a permanent hardcoded administrator in the application core. Users logging in with this email automatically receive full sovereign admin permissions.
+            </p>
+            <button
+              type="button"
+              onClick={() => loginAs('ADM-JATIN-01')}
+              className="w-full py-2.5 px-4 rounded-xl font-black text-xs text-black bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:brightness-110 shadow-[0_0_15px_rgba(212,175,55,0.4)] cursor-pointer transition-all flex items-center justify-center gap-2"
+            >
+              <UserCheck className="w-4 h-4 text-black" />
+              <span>Authenticate as jatinrathodeklo@gmail.com</span>
+            </button>
           </div>
 
           <p className="text-xs text-red-400 font-semibold text-center">
@@ -340,7 +365,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                 Admin Sovereign Authority Suite
               </h1>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300">
-                OFFICER: {currentUser.id}
+                OFFICER: {currentUser?.id || 'ADM-JATIN-01'}
               </span>
             </div>
             <p className="text-xs text-gray-400">

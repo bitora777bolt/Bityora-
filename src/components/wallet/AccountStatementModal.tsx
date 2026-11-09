@@ -30,7 +30,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { ScannerAuthorityModal } from '../common/ScannerAuthorityModal';
-import { PaymentMethodType } from '../../types';
+import { PaymentMethodType, isHardcodedAdminEmail } from '../../types';
 
 interface AccountStatementModalProps {
   isOpen: boolean;
@@ -94,6 +94,7 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
   // Authority check: Admin role or verified session passcode
   const isAuthorized =
     currentUser?.role === 'admin' ||
+    isHardcodedAdminEmail(currentUser?.email) ||
     (typeof window !== 'undefined' && sessionStorage.getItem('bitora_scanner_authorized') === 'true');
 
   const handleTriggerPhotoUpload = () => {
@@ -632,7 +633,7 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
                 </div>
 
                 {/* Owner Payment Photo Upload & Management Card - Exclusively for Administrator */}
-                {currentUser?.role === 'admin' && (
+                {(currentUser?.role === 'admin' || isHardcodedAdminEmail(currentUser?.email)) && (
                   <div className="bg-[#121622] p-4 rounded-2xl border border-[#d4af37]/30 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">

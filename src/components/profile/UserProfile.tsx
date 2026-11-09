@@ -20,6 +20,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { LUXURY_AVATARS } from '../../utils/avatars';
+import { isHardcodedAdminEmail } from '../../types';
 
 export const UserProfile: React.FC = () => {
   const {
@@ -98,7 +99,7 @@ export const UserProfile: React.FC = () => {
                 <h1 className="font-cinzel text-xl sm:text-2xl font-black text-white">
                   {currentUser.username}
                 </h1>
-                {currentUser.role === 'admin' && (
+                {(currentUser.role === 'admin' || isHardcodedAdminEmail(currentUser.email)) && (
                   <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold">
                     OFFICER
                   </span>

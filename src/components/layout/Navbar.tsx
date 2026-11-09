@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { AccountStatementModal } from '../wallet/AccountStatementModal';
 import { AuthLoginModal } from '../auth/AuthLoginModal';
+import { isHardcodedAdminEmail } from '../../types';
 
 interface NavbarProps {
   activeTab: string;
@@ -61,7 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [depositResetKey, setDepositResetKey] = useState<number>(0);
   const [authModalOpen, setAuthModalOpen] = useState(false);
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || isHardcodedAdminEmail(currentUser?.email);
 
   return (
     <header className="sticky top-0 z-40 bg-[#080a10]/95 backdrop-blur-md border-b border-[#242c3d]">

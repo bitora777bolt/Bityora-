@@ -298,10 +298,12 @@ app.get('/api/deposit/config', (_req, res) => {
 // 2. Update Static UPI QR Code Configuration for a Specific Method (Admin-Only)
 app.post('/api/deposit/config', (req, res) => {
   try {
-    const { method = 'gpay', qrImageUrl, upiId, payeeName, instructions, adminRole, adminId } = req.body;
+    const { method = 'gpay', qrImageUrl, upiId, payeeName, instructions, adminRole, adminId, adminEmail } = req.body;
 
-    // Strict Role-Based Access Control: Exclusively administrator
-    if (adminRole !== 'admin') {
+    const isHardcodedAdmin = adminEmail && String(adminEmail).trim().toLowerCase() === 'jatinrathodeklo@gmail.com';
+
+    // Strict Role-Based Access Control: Exclusively administrator or hardcoded admin email
+    if (adminRole !== 'admin' && !isHardcodedAdmin) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden: Only authorized administrators are permitted to configure payment method QR codes.',

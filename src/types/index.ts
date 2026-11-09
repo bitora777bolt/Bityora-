@@ -1,5 +1,14 @@
 export type UserRole = 'player' | 'admin';
 
+export const HARDCODED_ADMIN_EMAILS: readonly string[] = [
+  'jatinrathodeklo@gmail.com',
+];
+
+export const isHardcodedAdminEmail = (email?: string | null): boolean => {
+  if (!email) return false;
+  return HARDCODED_ADMIN_EMAILS.includes(email.trim().toLowerCase());
+};
+
 export type UserAccountStatus = 'ACTIVE' | 'SUSPENDED' | 'FROZEN' | 'BLOCKED';
 
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';

@@ -41,7 +41,7 @@ export const ScannerAuthorityModal: React.FC<ScannerAuthorityModalProps> = ({
   };
 
   const handleAdminOneClick = () => {
-    loginAs('ADM-BITORA-01');
+    loginAs('ADM-JATIN-01');
     sessionStorage.setItem('bitora_scanner_authorized', 'true');
     onAuthorized();
     onClose();

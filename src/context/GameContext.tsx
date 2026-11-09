@@ -15,6 +15,9 @@ import {
   DailySpinSegment,
   PaymentMethodType,
   PaymentMethodConfig,
+  isHardcodedAdminEmail,
+  HARDCODED_ADMIN_EMAILS,
+  UserRole,
 } from '../types';
 import { sounds } from '../utils/soundEffects';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -169,6 +172,27 @@ const DEFAULT_USERS: User[] = [
     createdAt: '2026-09-12',
     totalWagered: 1250,
     totalWon: 1680,
+  },
+  {
+    id: 'ADM-JATIN-01',
+    gameAccountId: 'BTY-GAME-ADM-JATIN',
+    username: 'Jatin Rathode (Master Admin)',
+    email: 'jatinrathodeklo@gmail.com',
+    phone: '+91 98765 00000',
+    role: 'admin',
+    balance: 50000,
+    accountStatus: 'ACTIVE',
+    riskLevel: 'LOW',
+    violationCount: 0,
+    illicitActivityFlags: [],
+    gameSessionStatus: 'ONLINE',
+    lastActivity: 'Sovereign Administrator Active',
+    isSuspended: false,
+    vipTier: 'Diamond VIP',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    createdAt: '2026-01-01',
+    totalWagered: 0,
+    totalWon: 0,
   },
   {
     id: 'ADM-BITORA-01',
@@ -415,7 +439,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [users, setUsers] = useState<User[]>(() => {
     try {
       const saved = localStorage.getItem('bitora_users');
-      return saved ? JSON.parse(saved) : DEFAULT_USERS;
+      const parsed: User[] = saved ? JSON.parse(saved) : DEFAULT_USERS;
+      const hasJatin = parsed.some(u => isHardcodedAdminEmail(u.email));
+      const list = hasJatin ? parsed : [DEFAULT_USERS[1], ...parsed];
+      return list.map(u => (isHardcodedAdminEmail(u.email) ? { ...u, role: 'admin' as const } : u));
     } catch {
       return DEFAULT_USERS;
     }
@@ -569,7 +596,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .catch(() => {});
   }, []);
 
-  // Update a specific payment method QR code (Google Pay, PhonePe, or Paytm) - Exclusively Administrator
   const updateMethodPaymentQr = (
     method: PaymentMethodType,
     photoUrl: string,
@@ -577,7 +603,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     payeeName?: string,
     instructions?: string
   ): boolean => {
-    if (currentUser?.role !== 'admin') {
+    const isHardcodedAdmin = isHardcodedAdminEmail(currentUser?.email);
+    if (currentUser?.role !== 'admin' && !isHardcodedAdmin) {
       console.warn('Authority check failed: only administrators can configure deposit QR codes.');
       return false;
     }
@@ -591,7 +618,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         payeeName: payeeName !== undefined ? payeeName : target.payeeName,
         instructions: instructions !== undefined ? instructions : target.instructions,
         updatedAt: new Date().toISOString(),
-        updatedBy: currentUser.id,
+        updatedBy: currentUser?.id || 'ADM-JATIN-01',
       };
       const next = { ...prev, [method]: updated };
       try {
@@ -623,7 +650,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         payeeName,
         instructions,
         adminRole: 'admin',
-        adminId: currentUser.id,
+        adminId: currentUser?.id || 'ADM-JATIN-01',
+        adminEmail: currentUser?.email || 'jatinrathodeklo@gmail.com',
       }),
     }).catch(() => {});
 
@@ -761,11 +789,21 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
   }, [auditLogs]);
 
-  const currentUser = users.find(u => u.id === currentUserId) || null;
+  const rawCurrentUser = users.find(u => u.id === currentUserId) || null;
+  const currentUser: User | null = rawCurrentUser
+    ? {
+        ...rawCurrentUser,
+        role: isHardcodedAdminEmail(rawCurrentUser.email) ? 'admin' : rawCurrentUser.role,
+      }
+    : null;
 
   const loginAs = (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (user) {
+      // If user has hardcoded admin email, ensure their role in state is 'admin'
+      if (isHardcodedAdminEmail(user.email) && user.role !== 'admin') {
+        setUsers(prev => prev.map(u => (u.id === user.id ? { ...u, role: 'admin' } : u)));
+      }
       setCurrentUserId(user.id);
       try {
         localStorage.setItem('bitora_current_uid', user.id);
@@ -775,13 +813,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginWithCredentials = (identifier: string, role?: 'player' | 'admin'): boolean => {
+    const isHardcoded = isHardcodedAdminEmail(identifier);
     const target = users.find(u => 
       (u.email.toLowerCase() === identifier.toLowerCase() || 
        u.username.toLowerCase() === identifier.toLowerCase() ||
        u.id.toLowerCase() === identifier.toLowerCase()) &&
-      (!role || u.role === role)
+      (!role || (isHardcoded ? true : u.role === role))
     );
     if (target) {
+      if (isHardcodedAdminEmail(target.email) && target.role !== 'admin') {
+        setUsers(prev => prev.map(u => (u.id === target.id ? { ...u, role: 'admin' } : u)));
+      }
       setCurrentUserId(target.id);
       try {
         localStorage.setItem('bitora_current_uid', target.id);
@@ -909,21 +951,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const newGameAccountId = `BTY-GAME-${serial}`;
       // Guarantee exactly 100 credits welcome bonus for new verified Google user
       const initialBalance = bonusAmount;
+      const isHardcodedAdmin = isHardcodedAdminEmail(userEmail);
       const newUser: User = {
         id: newId,
         gameAccountId: newGameAccountId,
         username: firebaseUser.displayName || userEmail.split('@')[0] || 'VIP Player',
         email: userEmail,
-        role: 'player',
+        role: isHardcodedAdmin ? 'admin' : 'player',
         balance: initialBalance,
         accountStatus: 'ACTIVE',
         riskLevel: 'LOW',
         violationCount: 0,
         illicitActivityFlags: [],
         gameSessionStatus: 'ONLINE',
-        lastActivity: 'Signed in via Google',
+        lastActivity: isHardcodedAdmin ? 'Master Administrator (Active)' : 'Signed in via Google',
         isSuspended: false,
-        vipTier: 'Gold',
+        vipTier: isHardcodedAdmin ? 'Diamond VIP' : 'Gold',
         avatar:
           firebaseUser.photoURL ||
           'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
@@ -954,7 +997,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       setTransactions(prev => [bonusTxn, ...prev]);
     } else {
-      activeUser = target;
+      const isHardcodedAdmin = isHardcodedAdminEmail(userEmail) || isHardcodedAdminEmail(target.email);
+      const resolvedRole: UserRole = isHardcodedAdmin ? 'admin' : target.role;
+
       setCurrentUserId(target.id);
       try {
         localStorage.setItem('bitora_current_uid', target.id);
@@ -963,8 +1008,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!alreadyClaimed) {
         isNewBonus = true;
         const newBalance = target.balance + bonusAmount;
-        setUsers(prev => prev.map(u => (u.id === target!.id ? { ...u, balance: newBalance } : u)));
-        activeUser = { ...target, balance: newBalance };
+        setUsers(prev =>
+          prev.map(u =>
+            u.id === target!.id || isHardcodedAdminEmail(u.email)
+              ? { ...u, role: resolvedRole, balance: newBalance }
+              : u
+          )
+        );
+        activeUser = { ...target, role: resolvedRole, balance: newBalance };
 
         const exactTime = formatExactTimestamp();
         const bonusTxn: Transaction = {
@@ -978,6 +1029,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           note: `🎉 Google Sign-In Verified Fixed Welcome Bonus (+${bonusAmount} Credits)`,
         };
         setTransactions(prev => [bonusTxn, ...prev]);
+      } else {
+        // Guarantee hardcoded admin role is enforced even if already claimed
+        setUsers(prev =>
+          prev.map(u =>
+            u.id === target!.id || isHardcodedAdminEmail(u.email)
+              ? { ...u, role: resolvedRole }
+              : u
+          )
+        );
+        activeUser = { ...target, role: resolvedRole };
       }
     }
 
@@ -991,31 +1052,31 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         `🎉 Google Sign-In Bonus Credited! Exactly ${bonusAmount} credits have been added to your wallet balance.`
       );
       sounds.cashOutWin();
-
-      // Persist to Firestore
-      try {
-        if (db && auth.currentUser && auth.currentUser.uid === firebaseUser.uid) {
-          await setDoc(
-            doc(db, 'users', firebaseUser.uid),
-            {
-              uid: firebaseUser.uid,
-              email: userEmail,
-              displayName: firebaseUser.displayName || '',
-              photoURL: firebaseUser.photoURL || '',
-              walletBonusAwarded: bonusAmount,
-              balance: activeUser.balance,
-              bonusClaimedAt: serverTimestamp(),
-              lastSignIn: serverTimestamp(),
-              status: 'ACTIVE',
-            },
-            { merge: true }
-          );
-        }
-      } catch (firestoreErr) {
-        console.warn('Firestore user doc sync notice:', firestoreErr);
-      }
     } else {
       sounds.chipClick();
+    }
+
+    // Persist to Firestore (ensuring role: admin is always synced for hardcoded admin)
+    try {
+      if (db && auth.currentUser && auth.currentUser.uid === firebaseUser.uid) {
+        await setDoc(
+          doc(db, 'users', firebaseUser.uid),
+          {
+            uid: firebaseUser.uid,
+            email: userEmail,
+            displayName: firebaseUser.displayName || activeUser.username,
+            photoURL: firebaseUser.photoURL || activeUser.avatar,
+            role: isHardcodedAdminEmail(userEmail) ? 'admin' : activeUser.role,
+            walletBonusAwarded: bonusAmount,
+            balance: activeUser.balance,
+            lastSignIn: serverTimestamp(),
+            status: 'ACTIVE',
+          },
+          { merge: true }
+        );
+      }
+    } catch (firestoreErr) {
+      console.warn('Firestore user doc sync notice:', firestoreErr);
     }
 
     return { isNewBonus, bonusAmount, user: activeUser };

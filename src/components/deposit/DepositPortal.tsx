@@ -20,7 +20,7 @@ import {
   Eye,
   Lock,
 } from 'lucide-react';
-import { DepositRequest, PaymentMethodType } from '../../types';
+import { DepositRequest, PaymentMethodType, isHardcodedAdminEmail } from '../../types';
 
 interface DepositPortalProps {
   onBackToGames?: () => void;
@@ -76,7 +76,7 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || isHardcodedAdminEmail(currentUser?.email);
 
   // Ensure Player ID updates if currentUser changes
   useEffect(() => {
