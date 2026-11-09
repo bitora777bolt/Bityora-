@@ -11,6 +11,8 @@ import {
   GameType,
   PendingDeposit,
   DailyCheckInState,
+  DailySpinState,
+  DailySpinSegment,
 } from '../types';
 import { sounds } from '../utils/soundEffects';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -21,6 +23,7 @@ import {
   claimDailyCheckInReward,
   getTodayDateKey,
 } from '../utils/dailyCheckIn';
+import { getUserDailySpinState } from '../utils/dailySpin';
 
 interface GameContextType {
   currentUser: User | null;
@@ -113,6 +116,12 @@ interface GameContextType {
   isCheckInModalOpen: boolean;
   setIsCheckInModalOpen: (open: boolean) => void;
   openDailyCheckIn: () => void;
+  // Interactive Daily Free Spin (7 Segments & 1-in-100 ₹100 Jackpot)
+  isDailySpinModalOpen: boolean;
+  setIsDailySpinModalOpen: (open: boolean) => void;
+  openDailySpin: () => void;
+  dailySpinState: DailySpinState | null;
+  creditDailySpinReward: (amount: number, isJackpot: boolean) => void;
 }
 
 const MAX_BALANCE = Infinity; // No limits! Unlimited balance growth
@@ -1150,6 +1159,65 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   };
 
+  // Interactive Daily Free Spin System (7 Segments & 1-in-100 ₹100 Jackpot)
+  const [isDailySpinModalOpen, setIsDailySpinModalOpen] = useState<boolean>(false);
+  const [dailySpinState, setDailySpinState] = useState<DailySpinState | null>(() => {
+    return currentUserId ? getUserDailySpinState(currentUserId) : null;
+  });
+
+  const openDailySpin = () => {
+    if (currentUserId) {
+      setDailySpinState(getUserDailySpinState(currentUserId));
+    }
+    setIsDailySpinModalOpen(true);
+  };
+
+  useEffect(() => {
+    if (currentUserId) {
+      setDailySpinState(getUserDailySpinState(currentUserId));
+    } else {
+      setDailySpinState(null);
+    }
+  }, [currentUserId]);
+
+  const creditDailySpinReward = (amount: number, isJackpot: boolean) => {
+    if (!currentUser) return;
+    if (amount <= 0) return;
+
+    const newBalance = currentUser.balance + amount;
+    setUsers(prev => prev.map(u => (u.id === currentUser.id ? { ...u, balance: newBalance } : u)));
+
+    const exactTime = formatExactTimestamp();
+    const spinTxn: Transaction = {
+      id: `SPIN-${Date.now().toString().slice(-6)}`,
+      userId: currentUser.id,
+      type: 'TOP_UP',
+      amount,
+      balanceAfter: newBalance,
+      status: 'COMPLETED',
+      timestamp: exactTime,
+      note: isJackpot
+        ? `👑 Daily Free Spin 1-in-100 Jackpot (+₹${amount} INR)`
+        : `🎡 Daily Free Spin Reward (+₹${amount} INR)`,
+    };
+    setTransactions(prev => [spinTxn, ...prev]);
+
+    // Persist to Firestore if authenticated with Firebase
+    try {
+      if (db && auth.currentUser && auth.currentUser.uid === currentUser.id) {
+        setDoc(
+          doc(db, 'users', currentUser.id),
+          {
+            balance: newBalance,
+            lastDailySpin: exactTime,
+            lastSpinWonAmount: amount,
+          },
+          { merge: true }
+        ).catch(() => {});
+      }
+    } catch {}
+  };
+
   // Virtual Credit Top-up / Deposit (No upper limit! Uncapped growth)
   const topUpVirtualCredits = (amount: number): { success: boolean; message: string } => {
     return submitDeposit(amount, 'Instant Top-Up');
@@ -1973,6 +2041,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isCheckInModalOpen,
         setIsCheckInModalOpen,
         openDailyCheckIn,
+        // Daily Free Spin System
+        isDailySpinModalOpen,
+        setIsDailySpinModalOpen,
+        openDailySpin,
+        dailySpinState,
+        creditDailySpinReward,
       }}
     >
       {children}

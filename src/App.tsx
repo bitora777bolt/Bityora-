@@ -15,6 +15,7 @@ import { WithdrawPortal } from './components/withdraw/WithdrawPortal';
 import { AuthLoginModal } from './components/auth/AuthLoginModal';
 import { AuthGate } from './components/auth/AuthGate';
 import { DailyCheckInModal } from './components/rewards/DailyCheckInModal';
+import { DailySpinModal } from './components/rewards/DailySpinModal';
 import { AccountRestrictionNotice } from './components/common/AccountRestrictionNotice';
 import {
   Shield,
@@ -41,6 +42,8 @@ function AppContent() {
     claimDailyCheckIn,
     isCheckInModalOpen,
     setIsCheckInModalOpen,
+    isDailySpinModalOpen,
+    setIsDailySpinModalOpen,
   } = useGame();
   const [activeTab, setActiveTab] = useState<string>('home');
   const [cashierOpen, setCashierOpen] = useState<boolean>(false);
@@ -411,6 +414,12 @@ function AppContent() {
         checkInState={dailyCheckInState}
         onClaim={claimDailyCheckIn}
         userBalance={currentUser?.balance || 0}
+      />
+
+      {/* Interactive Daily Free Spin (7 Segments & 1-in-100 ₹100 Jackpot) */}
+      <DailySpinModal
+        isOpen={isDailySpinModalOpen}
+        onClose={() => setIsDailySpinModalOpen(false)}
       />
 
       {/* Premium Footer */}

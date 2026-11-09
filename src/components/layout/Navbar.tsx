@@ -22,6 +22,7 @@ import {
   UserPlus,
   Gift,
   Flame,
+  Zap,
 } from 'lucide-react';
 import { AccountStatementModal } from '../wallet/AccountStatementModal';
 import { AuthLoginModal } from '../auth/AuthLoginModal';
@@ -39,7 +40,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   openCashier,
   openExportModal,
 }) => {
-  const { currentUser, users, loginAs, logout, soundEnabled, toggleSound, totalWinnings, winningsBalance, dailyCheckInState, openDailyCheckIn } = useGame();
+  const {
+    currentUser,
+    users,
+    loginAs,
+    logout,
+    soundEnabled,
+    toggleSound,
+    totalWinnings,
+    winningsBalance,
+    dailyCheckInState,
+    openDailyCheckIn,
+    dailySpinState,
+    openDailySpin,
+  } = useGame();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [statementModalOpen, setStatementModalOpen] = useState(false);
@@ -285,6 +299,25 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
+            {/* Interactive Daily Free Spin Button */}
+            {currentUser && (
+              <button
+                type="button"
+                onClick={openDailySpin}
+                className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-red-600/20 via-amber-500/25 to-yellow-500/20 border border-amber-400/60 hover:border-yellow-300 text-[#ffd700] text-xs font-black shadow-[0_0_15px_rgba(255,215,0,0.25)] cursor-pointer transition-all hover:scale-105 active:scale-95 shrink-0"
+                title="Interactive Daily Free Spin (100 INR Jackpot)"
+              >
+                <Zap className="w-3.5 h-3.5 text-[#ffd700] animate-pulse" />
+                <span className="hidden sm:inline">Daily Spin</span>
+                {!dailySpinState?.hasSpunToday && (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-yellow-400 animate-ping absolute -top-0.5 -right-0.5" />
+                    <span className="w-2 h-2 rounded-full bg-yellow-400 absolute -top-0.5 -right-0.5" />
+                  </>
+                )}
+              </button>
+            )}
+
             {/* Sound Toggle */}
             <button
               onClick={toggleSound}
@@ -422,6 +455,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
                   )}
 
+                  {currentUser && (
+                    <div className="p-1.5 border-b border-[#242c3d]">
+                      <button
+                        onClick={() => {
+                          openDailySpin();
+                          setUserDropdownOpen(false);
+                        }}
+                        className="w-full flex items-center justify-between p-2 rounded-xl text-left text-xs bg-gradient-to-r from-red-950/40 via-amber-950/40 to-yellow-950/40 hover:from-red-900/50 hover:to-amber-900/50 text-[#ffd700] border border-amber-500/40 transition-all font-bold cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Zap className="w-4 h-4 text-[#ffd700]" />
+                          <div>
+                            <p className="leading-tight">Daily Free Spin</p>
+                            <p className="text-[9px] text-gray-400 font-normal">Win up to ₹100 Jackpot daily</p>
+                          </div>
+                        </div>
+                        {!dailySpinState?.hasSpunToday ? (
+                          <span className="bg-[#ffd700] text-black font-black text-[9px] px-1.5 py-0.5 rounded-full animate-pulse">
+                            SPIN
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-gray-400 font-bold">Done ✓</span>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
                   <div className="border-t border-[#242c3d] pt-1 mt-1">
                     <button
                       onClick={() => {
@@ -493,6 +553,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ) : (
                   <span className="bg-emerald-950/80 text-emerald-400 border border-emerald-500/30 text-[10px] px-2 py-0.5 rounded-full">
                     Claimed ✓
+                  </span>
+                )}
+              </button>
+            )}
+
+            {/* Mobile Daily Free Spin Button */}
+            {currentUser && (
+              <button
+                onClick={() => {
+                  openDailySpin();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-between p-2.5 rounded-xl bg-gradient-to-r from-red-600/20 via-amber-500/25 to-yellow-500/20 border border-amber-400/50 text-[#ffd700] font-bold text-xs shadow-md mb-2 cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-[#ffd700]" />
+                  <span>Daily Free Spin (Up to ₹100 Jackpot)</span>
+                </div>
+                {!dailySpinState?.hasSpunToday ? (
+                  <span className="bg-[#ffd700] text-black font-black text-[10px] px-2 py-0.5 rounded-full animate-pulse">
+                    Spin Ready!
+                  </span>
+                ) : (
+                  <span className="bg-[#121622] text-gray-400 border border-[#242c3d] text-[10px] px-2 py-0.5 rounded-full">
+                    Completed ✓
                   </span>
                 )}
               </button>

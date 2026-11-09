@@ -164,3 +164,24 @@ export interface DailyCheckInState {
   nextRewardInHours?: number;
 }
 
+export interface DailySpinSegment {
+  id: number; // 0 to 6
+  label: string;
+  value: number; // 0, 1, 2, 5, 15, 100
+  color: string;
+  gradient: string;
+  isJackpot?: boolean;
+  textColor?: string;
+  accentColor?: string;
+}
+
+export interface DailySpinState {
+  hasSpunToday: boolean;
+  lastSpinDate: string | null; // 'YYYY-MM-DD'
+  totalSpinsCount: number;
+  globalSpinCounter: number; // 1 to 100 cycle count across player base
+  lastWonAmount: number | null;
+  secondsUntilNextSpin: number;
+}
+
+
