@@ -3,7 +3,6 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
-import Razorpay from 'razorpay';
 import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
@@ -155,294 +154,335 @@ app.post('/api/generate-image', async (req, res) => {
 });
 
 // ==========================================
+// MANUAL UPI DEPOSIT & ADMINISTRATIVE VERIFICATION SYSTEM
+// 3 EXPLICIT PAYMENT OPTIONS: Google Pay, PhonePe, Paytm
 // ==========================================
-// RAZORPAY PAYMENT GATEWAY & WEBHOOK SYSTEM (STRICT PRODUCTION MODE)
-// ==========================================
-const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || '';
-const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || '';
-const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || '';
 
-let razorpayClient: any = null;
-if (RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET) {
-  try {
-    razorpayClient = new Razorpay({
-      key_id: RAZORPAY_KEY_ID,
-      key_secret: RAZORPAY_KEY_SECRET,
-    });
-    console.log('[Razorpay] Initialized with live production credentials.');
-  } catch (err) {
-    console.error('[Razorpay] Production SDK initialization error:', err);
-  }
-} else {
-  console.warn('[Razorpay] Warning: RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are not set in environment.');
+type PaymentMethodType = 'gpay' | 'phonepe' | 'paytm';
+
+interface MethodQrConfig {
+  id: PaymentMethodType;
+  name: string;
+  qrImageUrl: string;
+  upiId: string;
+  payeeName: string;
+  instructions: string;
+  badge: string;
+  themeColor: string;
+  accentColor: string;
+  updatedAt: string;
+  updatedBy: string;
 }
 
-interface StoredOrder {
-  orderId: string;
-  amount: number; // In INR
-  amountInPaise: number;
-  currency: string;
-  userId: string;
-  status: 'created' | 'paid' | 'failed';
-  paymentId?: string;
-  signature?: string;
-  receipt: string;
-  createdAt: number;
-  paidAt?: number;
-}
-
-interface WebhookRecord {
+interface ServerDepositRequest {
   id: string;
-  event: string;
-  paymentId?: string;
-  orderId?: string;
-  amount?: number;
-  userId?: string;
-  signatureValid: boolean;
-  receivedAt: string;
+  userId: string;
+  playerId: string;
+  username: string;
+  userEmail?: string;
+  paymentMethod: PaymentMethodType;
+  paymentMethodName: string;
+  amount: number;
+  utr: string;
+  screenshotUrl: string;
+  screenshotName?: string;
+  screenshotSize?: string;
+  qrUrl?: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  createdAt: string;
+  processedAt?: string;
+  rejectionReason?: string;
+  adminId?: string;
+  adminNote?: string;
 }
 
-const ordersStore = new Map<string, StoredOrder>();
-const webhookEvents: WebhookRecord[] = [];
+// In-memory persistent stores with 3 default payment methods
+const paymentMethodConfigs: Record<PaymentMethodType, MethodQrConfig> = {
+  gpay: {
+    id: 'gpay',
+    name: 'Google Pay',
+    qrImageUrl:
+      'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi%3A%2F%2Fpay%3Fpa%3Dbitora.gpay%40okaxis%26pn%3DBitora%2520VIP%2520GooglePay%26cu%3DINR',
+    upiId: 'bitora.gpay@okaxis',
+    payeeName: 'Bitora VIP (Google Pay)',
+    instructions:
+      'Open Google Pay, tap "Scan any QR code", point camera at this code, verify Payee "Bitora VIP (Google Pay)", complete payment, and paste your 12-digit UTR below.',
+    badge: 'GPay Instant',
+    themeColor: 'from-[#4285F4] via-[#34A853] to-[#FBBC05]',
+    accentColor: '#4285F4',
+    updatedAt: new Date().toISOString(),
+    updatedBy: 'SYSTEM_ADMIN',
+  },
+  phonepe: {
+    id: 'phonepe',
+    name: 'PhonePe',
+    qrImageUrl:
+      'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi%3A%2F%2Fpay%3Fpa%3Dbitora.phonepe%40ybl%26pn%3DBitora%2520VIP%2520PhonePe%26cu%3DINR',
+    upiId: 'bitora.phonepe@ybl',
+    payeeName: 'Bitora VIP (PhonePe)',
+    instructions:
+      'Open PhonePe, tap the QR scanner icon on top right, scan this code, verify Payee "Bitora VIP (PhonePe)", transfer exact amount, and submit your 12-digit UTR with screenshot.',
+    badge: 'PhonePe Direct',
+    themeColor: 'from-[#5f259f] to-[#3f1070]',
+    accentColor: '#6739B7',
+    updatedAt: new Date().toISOString(),
+    updatedBy: 'SYSTEM_ADMIN',
+  },
+  paytm: {
+    id: 'paytm',
+    name: 'Paytm',
+    qrImageUrl:
+      'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi%3A%2F%2Fpay%3Fpa%3Dbitora.paytm%40paytm%26pn%3DBitora%2520VIP%2520Paytm%26cu%3DINR',
+    upiId: 'bitora.paytm@paytm',
+    payeeName: 'Bitora VIP (Paytm)',
+    instructions:
+      'Open Paytm, tap "Scan Any QR", scan this code, verify Payee "Bitora VIP (Paytm)", complete payment from Bank or Paytm UPI, and copy your 12-digit UPI reference ID below.',
+    badge: 'Paytm UPI / Wallet',
+    themeColor: 'from-[#00b9f1] to-[#002e6e]',
+    accentColor: '#00BAF2',
+    updatedAt: new Date().toISOString(),
+    updatedBy: 'SYSTEM_ADMIN',
+  },
+};
 
-// 1. Get Razorpay Client Configuration
-app.get('/api/razorpay/config', (_req, res) => {
-  res.json({
-    keyId: RAZORPAY_KEY_ID,
-    isLiveConfigured: Boolean(RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET),
+const serverDepositRequests: ServerDepositRequest[] = [
+  {
+    id: 'DEP-884912',
+    userId: 'BIT-782914',
+    playerId: 'BTY-GAME-782914',
+    username: 'Aarav Royal',
+    userEmail: 'aarav.vip@bitora.demo',
+    paymentMethod: 'phonepe',
+    paymentMethodName: 'PhonePe',
+    amount: 1000,
+    utr: '419283746501',
+    screenshotUrl: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=600&auto=format&fit=crop&q=80',
+    screenshotName: 'phonepe_payment_1000.jpg',
+    screenshotSize: '342 KB',
+    status: 'APPROVED',
+    createdAt: new Date(Date.now() - 3600000 * 4).toLocaleString('en-IN'),
+    processedAt: new Date(Date.now() - 3600000 * 3.8).toLocaleString('en-IN'),
+    adminId: 'ADM-BITORA-01',
+    adminNote: 'UTR verified against PhonePe Merchant statement.',
+  },
+  {
+    id: 'DEP-991204',
+    userId: 'BIT-990142',
+    playerId: 'BTY-GAME-990142',
+    username: 'Priya Mehta',
+    userEmail: 'priya.m@bitora.demo',
+    paymentMethod: 'gpay',
+    paymentMethodName: 'Google Pay',
+    amount: 500,
+    utr: '420198347112',
+    screenshotUrl: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=600&auto=format&fit=crop&q=80',
+    screenshotName: 'gpay_receipt_500.png',
+    screenshotSize: '512 KB',
+    status: 'PENDING',
+    createdAt: new Date(Date.now() - 1800000).toLocaleString('en-IN'),
+  },
+];
+
+// 1. Get Static UPI QR Code Configuration for All 3 Payment Methods
+app.get('/api/deposit/config', (_req, res) => {
+  return res.json({
+    success: true,
+    methods: paymentMethodConfigs,
+    config: paymentMethodConfigs.gpay, // backward compatibility
+    minDeposit: 110,
+    maxDeposit: 5000,
     currency: 'INR',
-    businessName: 'BITORA VIP Gaming & Casino',
-    themeColor: '#d4af37',
   });
 });
 
-// 2. Create Razorpay Live Order
-app.post('/api/razorpay/create-order', async (req, res) => {
+// 2. Update Static UPI QR Code Configuration for a Specific Method (Admin-Only)
+app.post('/api/deposit/config', (req, res) => {
   try {
-    const { amount, userId = 'vip-player', userEmail = '', userPhone = '' } = req.body;
+    const { method = 'gpay', qrImageUrl, upiId, payeeName, instructions, adminRole, adminId } = req.body;
 
-    const numAmount = Number(amount);
-    if (!numAmount || isNaN(numAmount) || numAmount <= 0) {
-      return res.status(400).json({ error: 'Valid deposit amount is required.' });
-    }
-
-    if (numAmount > 5000) {
-      return res.status(400).json({ error: 'Deposit amount exceeds maximum allowable limit of ₹5,000.' });
-    }
-
-    if (!razorpayClient || !RAZORPAY_KEY_ID) {
-      return res.status(503).json({
-        error: 'Razorpay production gateway is not configured with active API keys on the server.',
+    // Strict Role-Based Access Control: Exclusively administrator
+    if (adminRole !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Only authorized administrators are permitted to configure payment method QR codes.',
       });
     }
 
-    const amountInPaise = Math.round(numAmount * 100);
-    const receipt = `rcpt_${Date.now().toString().slice(-8)}`;
+    const targetMethodKey: PaymentMethodType =
+      method === 'phonepe' || method === 'paytm' ? method : 'gpay';
+    const targetConfig = paymentMethodConfigs[targetMethodKey];
 
-    const orderData = await razorpayClient.orders.create({
-      amount: amountInPaise,
-      currency: 'INR',
-      receipt,
-      notes: {
-        userId,
-        platform: 'BITORA_VIP_CASINO',
-        email: userEmail,
-        phone: userPhone,
-      },
-    });
+    if (qrImageUrl !== undefined && qrImageUrl !== null) {
+      targetConfig.qrImageUrl = String(qrImageUrl).trim();
+    }
+    if (upiId) targetConfig.upiId = String(upiId).trim();
+    if (payeeName) targetConfig.payeeName = String(payeeName).trim();
+    if (instructions) targetConfig.instructions = String(instructions).trim();
 
-    // Register order in memory store for verification & webhook reconciliation
-    ordersStore.set(orderData.id, {
-      orderId: orderData.id,
-      amount: numAmount,
-      amountInPaise,
-      currency: 'INR',
-      userId,
-      status: 'created',
-      receipt,
-      createdAt: Date.now(),
-    });
+    targetConfig.updatedAt = new Date().toISOString();
+    targetConfig.updatedBy = adminId || 'ADM-BITORA-01';
+
+    console.log(`[Admin] Static deposit QR code for ${targetConfig.name} updated by ${targetConfig.updatedBy}`);
 
     return res.json({
       success: true,
-      order: orderData,
-      keyId: RAZORPAY_KEY_ID,
+      message: `Static QR code and settings for ${targetConfig.name} updated successfully by administrator.`,
+      config: targetConfig,
+      methods: paymentMethodConfigs,
     });
   } catch (error: any) {
-    console.error('[Razorpay] Live Order Creation Error:', error);
-    return res.status(500).json({
-      error: error?.error?.description || error.message || 'Failed to create Razorpay live order.',
-    });
+    console.error('[Admin] QR Config Update Error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to update QR configuration.' });
   }
 });
 
-// 3. Verify Payment Signature & Confirm Automatic Wallet Balance Credit
-app.post('/api/razorpay/verify-payment', (req, res) => {
+// 3. Submit Manual Deposit Request (Player Flow)
+app.post('/api/deposit/submit', (req, res) => {
   try {
     const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
+      userId,
+      playerId,
+      username,
+      userEmail,
+      paymentMethod = 'gpay',
       amount,
-      userId = 'vip-player',
+      utr,
+      screenshotUrl,
+      screenshotName,
+      screenshotSize,
     } = req.body;
 
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-      return res.status(400).json({
-        error: 'Missing mandatory payment verification fields (order_id, payment_id, razorpay_signature).',
+    const numAmount = Number(amount);
+    if (!numAmount || isNaN(numAmount) || numAmount < 10) {
+      return res.status(400).json({ error: 'Valid deposit amount (min ₹10) is required.' });
+    }
+
+    if (!utr || String(utr).trim().length < 6) {
+      return res.status(400).json({ error: 'Valid 12-digit UTR / Transaction ID is required.' });
+    }
+
+    const cleanUtr = String(utr).trim();
+
+    // Check for duplicate UTR submissions
+    const existing = serverDepositRequests.find(
+      r => r.utr.toLowerCase() === cleanUtr.toLowerCase() && r.status !== 'REJECTED'
+    );
+    if (existing) {
+      return res.status(409).json({
+        error: `UTR ${cleanUtr} has already been submitted under request ${existing.id} (Status: ${existing.status}). Please check your transaction reference.`,
       });
     }
 
-    if (!RAZORPAY_KEY_SECRET) {
-      return res.status(500).json({
-        error: 'Razorpay key secret is not configured on the server.',
-      });
-    }
+    const validMethod: PaymentMethodType =
+      paymentMethod === 'phonepe' || paymentMethod === 'paytm' ? paymentMethod : 'gpay';
+    const methodInfo = paymentMethodConfigs[validMethod];
 
-    // Verify HMAC-SHA256 signature strictly using the production secret
-    const generatedSignature = crypto
-      .createHmac('sha256', RAZORPAY_KEY_SECRET)
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest('hex');
+    const newRequest: ServerDepositRequest = {
+      id: `DEP-${Math.floor(100000 + Math.random() * 900000)}`,
+      userId: userId || 'GUEST',
+      playerId: playerId || userId || `BIT-${Date.now().toString().slice(-6)}`,
+      username: username || 'Player',
+      userEmail: userEmail || '',
+      paymentMethod: validMethod,
+      paymentMethodName: methodInfo.name,
+      amount: numAmount,
+      utr: cleanUtr,
+      screenshotUrl: screenshotUrl || '',
+      screenshotName: screenshotName || 'payment_proof.jpg',
+      screenshotSize: screenshotSize || '120 KB',
+      qrUrl: methodInfo.qrImageUrl,
+      status: 'PENDING',
+      createdAt: new Date().toLocaleString('en-IN'),
+    };
 
-    const isValid = generatedSignature === razorpay_signature;
+    serverDepositRequests.unshift(newRequest);
+    if (serverDepositRequests.length > 200) serverDepositRequests.pop();
 
-    if (!isValid) {
-      return res.status(400).json({
+    console.log(
+      `[Deposit] New deposit request: ${newRequest.id} via ${newRequest.paymentMethodName} by ${newRequest.username} (Player ID: ${newRequest.playerId}, Amount: ₹${newRequest.amount}, UTR: ${newRequest.utr})`
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: `Deposit request via ${newRequest.paymentMethodName} submitted successfully! Administrator review is pending.`,
+      request: newRequest,
+    });
+  } catch (error: any) {
+    console.error('[Deposit] Submit Error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to submit deposit request.' });
+  }
+});
+
+// 4. Get All Deposit Requests (Admin & User filter)
+app.get('/api/deposit/requests', (req, res) => {
+  const { userId, role } = req.query;
+
+  if (role === 'admin') {
+    return res.json({
+      success: true,
+      requests: serverDepositRequests,
+      pendingCount: serverDepositRequests.filter(r => r.status === 'PENDING').length,
+    });
+  }
+
+  if (userId) {
+    const userReqs = serverDepositRequests.filter(r => r.userId === userId || r.playerId === userId);
+    return res.json({
+      success: true,
+      requests: userReqs,
+    });
+  }
+
+  return res.json({
+    success: true,
+    requests: serverDepositRequests.slice(0, 50),
+    pendingCount: serverDepositRequests.filter(r => r.status === 'PENDING').length,
+  });
+});
+
+// 5. Review & Process Deposit Request (Admin Only)
+app.post('/api/deposit/review', (req, res) => {
+  try {
+    const { requestId, action, adminRole, adminId, reason } = req.body;
+
+    if (adminRole !== 'admin') {
+      return res.status(403).json({
         success: false,
-        error: 'Cryptographic signature mismatch. Payment verification failed.',
+        error: 'Forbidden: Only authorized administrators can review and approve deposit requests.',
       });
     }
 
-    // Update order status in registry
-    const stored = ordersStore.get(razorpay_order_id);
-    const creditedAmount = stored ? stored.amount : Number(amount) || 0;
-
-    if (stored) {
-      stored.status = 'paid';
-      stored.paymentId = razorpay_payment_id;
-      stored.signature = razorpay_signature;
-      stored.paidAt = Date.now();
-      ordersStore.set(razorpay_order_id, stored);
+    const request = serverDepositRequests.find(r => r.id === requestId);
+    if (!request) {
+      return res.status(404).json({ error: `Deposit request ${requestId} not found.` });
     }
+
+    if (request.status !== 'PENDING') {
+      return res.status(400).json({
+        error: `Deposit request ${requestId} has already been processed with status: ${request.status}.`,
+      });
+    }
+
+    request.status = action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+    request.processedAt = new Date().toLocaleString('en-IN');
+    request.adminId = adminId || 'ADM-BITORA-01';
+    if (action === 'REJECT') {
+      request.rejectionReason = reason || 'Declined during manual supervisor audit.';
+    } else {
+      request.adminNote = reason || 'Verified against bank transaction feed.';
+    }
+
+    console.log(`[Admin] Deposit request ${requestId} ${request.status} by ${request.adminId}`);
 
     return res.json({
       success: true,
-      message: `Payment of ₹${creditedAmount.toLocaleString('en-IN')} verified successfully! Wallet credited.`,
-      orderId: razorpay_order_id,
-      paymentId: razorpay_payment_id,
-      amount: creditedAmount,
-      userId: stored ? stored.userId : userId,
-      credited: true,
-      timestamp: new Date().toISOString(),
+      message: `Deposit request ${requestId} has been ${request.status} successfully.`,
+      request,
     });
   } catch (error: any) {
-    console.error('[Razorpay] Verify Payment Error:', error);
-    return res.status(500).json({ error: error.message || 'Payment verification failed.' });
+    console.error('[Admin] Review Deposit Error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to review deposit request.' });
   }
-});
-
-// 4. Official Razorpay Webhook Handler (Strict HMAC-SHA256 validation)
-app.post('/api/razorpay/webhook', (req: any, res) => {
-  try {
-    const receivedSignature = req.headers['x-razorpay-signature'] as string;
-    if (!receivedSignature) {
-      return res.status(400).json({ error: 'Missing x-razorpay-signature header.' });
-    }
-
-    if (!RAZORPAY_WEBHOOK_SECRET) {
-      return res.status(500).json({ error: 'RAZORPAY_WEBHOOK_SECRET is not configured on server.' });
-    }
-
-    let signatureValid = false;
-    if (req.rawBody) {
-      const expectedSignature = crypto
-        .createHmac('sha256', RAZORPAY_WEBHOOK_SECRET)
-        .update(req.rawBody)
-        .digest('hex');
-
-      try {
-        signatureValid = crypto.timingSafeEqual(
-          Buffer.from(expectedSignature, 'utf8'),
-          Buffer.from(receivedSignature, 'utf8')
-        );
-      } catch {
-        signatureValid = expectedSignature === receivedSignature;
-      }
-    }
-
-    if (!signatureValid) {
-      return res.status(400).json({ error: 'Invalid Razorpay webhook signature.' });
-    }
-
-    const event = req.body?.event || 'unknown';
-    const payload = req.body?.payload;
-    const paymentEntity = payload?.payment?.entity;
-    const orderEntity = payload?.order?.entity;
-
-    const paymentId = paymentEntity?.id || 'pay_unknown';
-    const orderId = paymentEntity?.order_id || orderEntity?.id || 'order_unknown';
-    const amountInPaise = paymentEntity?.amount || orderEntity?.amount || 0;
-    const amountInInr = amountInPaise ? amountInPaise / 100 : 0;
-    const userId = paymentEntity?.notes?.userId || orderEntity?.notes?.userId || 'vip-player';
-
-    // Record webhook event in audit history
-    const record: WebhookRecord = {
-      id: `wh_${Date.now().toString().slice(-8)}`,
-      event,
-      paymentId,
-      orderId,
-      amount: amountInInr,
-      userId,
-      signatureValid: true,
-      receivedAt: new Date().toISOString(),
-    };
-    webhookEvents.unshift(record);
-    if (webhookEvents.length > 50) webhookEvents.pop();
-
-    // Reconcile and fulfill payment on payment.captured or order.paid
-    if (['payment.captured', 'order.paid'].includes(event)) {
-      const order = ordersStore.get(orderId);
-      if (order) {
-        order.status = 'paid';
-        order.paymentId = paymentId;
-        order.paidAt = Date.now();
-        ordersStore.set(orderId, order);
-      } else {
-        ordersStore.set(orderId, {
-          orderId,
-          amount: amountInInr,
-          amountInPaise,
-          currency: 'INR',
-          userId,
-          status: 'paid',
-          paymentId,
-          receipt: `rcpt_wh_${Date.now().toString().slice(-6)}`,
-          createdAt: Date.now(),
-          paidAt: Date.now(),
-        });
-      }
-      console.log(`[Razorpay Webhook] Successfully processed ${event} for ₹${amountInInr} (User: ${userId}, Payment: ${paymentId})`);
-    }
-
-    return res.status(200).json({
-      status: 'ok',
-      received: true,
-      event,
-      signatureValid: true,
-    });
-  } catch (error: any) {
-    console.error('[Razorpay Webhook] Handler Error:', error);
-    return res.status(500).json({ error: error.message || 'Webhook processing failed.' });
-  }
-});
-
-// 6. Get Razorpay Orders & Webhook Log Registry
-app.get('/api/razorpay/orders', (_req, res) => {
-  res.json({
-    orders: Array.from(ordersStore.values()).slice(-20),
-    webhooks: webhookEvents.slice(-20),
-  });
 });
 
 // Server status & platform configs

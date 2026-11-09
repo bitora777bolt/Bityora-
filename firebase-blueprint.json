@@ -11,12 +11,33 @@
         "createdAt": { "type": "string" }
       },
       "required": ["uid", "email"]
+    },
+    "DepositRequest": {
+      "title": "DepositRequest",
+      "description": "Manual UPI deposit request submitted by players for administrator verification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "playerId": { "type": "string" },
+        "username": { "type": "string" },
+        "amount": { "type": "number" },
+        "utr": { "type": "string" },
+        "screenshotUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "playerId", "amount", "utr", "status"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "User profile documents keyed by Auth UID"
+    },
+    "/deposit_requests/{depositId}": {
+      "schema": "DepositRequest",
+      "description": "Manual deposit requests submitted by players"
     }
   }
 }

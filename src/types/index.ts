@@ -103,18 +103,43 @@ export interface GameRecord {
   riskFlag?: string;
 }
 
+export type PaymentMethodType = 'gpay' | 'phonepe' | 'paytm';
+
+export interface PaymentMethodConfig {
+  id: PaymentMethodType;
+  name: string; // 'Google Pay' | 'PhonePe' | 'Paytm'
+  qrImageUrl: string;
+  upiId: string;
+  payeeName: string;
+  instructions: string;
+  badge: string;
+  themeColor: string;
+  accentColor: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface DepositRequest {
   id: string;
   userId: string;
+  playerId: string; // The user's unique Player ID (e.g. "BIT-782914" or "BTY-GAME-782914")
   username: string;
+  userEmail?: string;
+  paymentMethod?: PaymentMethodType; // 'gpay' | 'phonepe' | 'paytm'
+  paymentMethodName?: string; // 'Google Pay' | 'PhonePe' | 'Paytm'
   amount: number;
-  referenceNo: string;
-  qrUrl: string;
+  utr: string; // 12-digit UTR or Transaction ID
+  referenceNo?: string; // Backwards-compatible alias for utr
+  screenshotUrl: string; // Data URL or image URL of uploaded payment screenshot
+  screenshotName?: string;
+  screenshotSize?: string;
+  qrUrl?: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   createdAt: string;
   processedAt?: string;
   rejectionReason?: string;
   adminId?: string;
+  adminNote?: string;
 }
 
 export interface AdminAuditLog {

@@ -30,11 +30,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { ScannerAuthorityModal } from '../common/ScannerAuthorityModal';
-import {
-  loadRazorpayScript,
-  createRazorpayOrder,
-  verifyRazorpayPayment,
-} from '../../utils/razorpay';
+import { PaymentMethodType } from '../../types';
 
 interface AccountStatementModalProps {
   isOpen: boolean;
@@ -67,17 +63,21 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
     depositHistory,
     withdrawalHistory,
     submitDeposit,
-    creditWalletFromRazorpay,
     submitWithdrawal,
     instantRefillCredits,
     ownerPaymentQr,
+    ownerUpiId,
     updateOwnerPaymentQr,
+    paymentMethodConfigs,
     pendingDeposits,
     activePendingDeposit,
   } = useGame();
 
   const [activeTab, setActiveTab] = useState<'STATEMENT' | 'DEPOSIT' | 'WITHDRAW'>(initialTab);
   const [statementFilter, setStatementFilter] = useState<'ALL' | 'GAMES' | 'DEPOSITS' | 'WITHDRAWALS'>('ALL');
+
+  // Selected Payment Method: explicitly 'gpay', 'phonepe', or 'paytm'
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethodType>('gpay');
 
   // Deposit Form State (Step 1: Select Amount, Step 2: Scan Owner Photo & Pay)
   const [depositStep, setDepositStep] = useState<'SELECT' | 'PAY'>('SELECT');
@@ -88,6 +88,8 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
   const [copiedUpi, setCopiedUpi] = useState<boolean>(false);
   const [photoUploadMsg, setPhotoUploadMsg] = useState<string | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
+
+  const activeMethodConfig = paymentMethodConfigs?.[selectedPaymentMethod] || paymentMethodConfigs?.gpay;
 
   // Authority check: Admin role or verified session passcode
   const isAuthorized =
@@ -181,7 +183,8 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
   };
 
   const handleCopyUpi = () => {
-    navigator.clipboard.writeText('bitora.vip.pay@okhdfcbank').catch(() => {});
+    const upi = activeMethodConfig?.upiId || 'bitora.vip.pay@okhdfcbank';
+    navigator.clipboard.writeText(upi).catch(() => {});
     setCopiedUpi(true);
     setTimeout(() => setCopiedUpi(false), 2000);
   };
@@ -221,118 +224,17 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
       setDepositMsg({ text: 'Please enter a valid deposit amount (minimum ₹10).', isError: true });
       return;
     }
-    const res = submitDeposit(depositAmount, depositMethod, referenceUtr);
+    const res = submitDeposit(
+      depositAmount,
+      activeMethodConfig?.name || depositMethod,
+      referenceUtr
+    );
     setDepositMsg({ text: res.message, isError: !res.success });
     if (res.success && res.pendingDeposit) {
       setQrSecondsLeft(Math.max(0, Math.ceil((res.pendingDeposit.releaseAt - Date.now()) / 1000)));
     }
   };
 
-  const [isPayingRazorpay, setIsPayingRazorpay] = useState<boolean>(false);
-  const [razorpaySuccessReceipt, setRazorpaySuccessReceipt] = useState<{
-    paymentId: string;
-    orderId: string;
-    amount: number;
-    balanceAfter: number;
-  } | null>(null);
-
-  const handleRazorpayDeposit = async () => {
-    if (!currentUser) {
-      setDepositMsg({ text: 'Please sign in to proceed with deposit.', isError: true });
-      return;
-    }
-    if (depositAmount <= 0) {
-      setDepositMsg({ text: 'Please enter a valid amount (minimum ₹10).', isError: true });
-      return;
-    }
-    if (depositAmount > 5000) {
-      setDepositAmount(5000);
-    }
-
-    setIsPayingRazorpay(true);
-    setDepositMsg(null);
-
-    try {
-      const orderRes = await createRazorpayOrder(
-        depositAmount,
-        currentUser.id,
-        currentUser.email,
-        currentUser.phone
-      );
-
-      const isScriptLoaded = await loadRazorpayScript();
-
-      if (isScriptLoaded && typeof window !== 'undefined' && window.Razorpay) {
-        const options = {
-          key: orderRes.keyId,
-          amount: orderRes.order.amount,
-          currency: orderRes.order.currency || 'INR',
-          name: 'BITORA VIP Gaming & Casino',
-          description: `Wallet Deposit: ₹${depositAmount.toLocaleString('en-IN')}`,
-          image: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=128&auto=format&fit=crop&q=80',
-          order_id: orderRes.order.id,
-          prefill: {
-            name: currentUser.username || 'VIP Player',
-            email: currentUser.email || 'vip@bitora.casino',
-            contact: currentUser.phone || '',
-          },
-          theme: {
-            color: '#d4af37',
-            backdrop_color: '#0b0e14',
-          },
-          modal: {
-            ondismiss: () => {
-              setIsPayingRazorpay(false);
-            },
-          },
-          handler: async (response: any) => {
-            try {
-              const verifyRes = await verifyRazorpayPayment({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-                amount: depositAmount,
-                userId: currentUser.id,
-              });
-
-              if (verifyRes.success) {
-                const creditRes = creditWalletFromRazorpay(
-                  depositAmount,
-                  response.razorpay_payment_id,
-                  response.razorpay_order_id,
-                  depositMethod
-                );
-                setRazorpaySuccessReceipt({
-                  paymentId: response.razorpay_payment_id,
-                  orderId: response.razorpay_order_id,
-                  amount: depositAmount,
-                  balanceAfter: creditRes.balanceAfter,
-                });
-                setDepositMsg({
-                  text: `🎉 ₹${depositAmount.toLocaleString('en-IN')} successfully credited to your wallet via Razorpay!`,
-                });
-              }
-            } catch (err: any) {
-              setDepositMsg({ text: err.message || 'Payment verification failed.', isError: true });
-            } finally {
-              setIsPayingRazorpay(false);
-            }
-          },
-        };
-        const rzp = new window.Razorpay(options);
-        rzp.on('payment.failed', (resp: any) => {
-          setDepositMsg({ text: resp.error?.description || 'Payment cancelled or failed.', isError: true });
-          setIsPayingRazorpay(false);
-        });
-        rzp.open();
-      } else {
-        throw new Error('Razorpay Checkout SDK could not be loaded. Please ensure an active internet connection and that ad-blockers are disabled.');
-      }
-    } catch (err: any) {
-      setDepositMsg({ text: err.message || 'Payment error occurred.', isError: true });
-      setIsPayingRazorpay(false);
-    }
-  };
 
   const handleWithdrawSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -611,7 +513,7 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
                 className="px-3 py-1.5 rounded-xl bg-[#172030] hover:bg-[#202d44] border border-[#2d3b55] text-xs font-bold text-[#f5d061] flex items-center gap-1.5 cursor-pointer"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
-                <span>Go to Razorpay Deposit</span>
+                <span>Go to UPI QR Deposit</span>
               </button>
             </div>
           </div>
@@ -729,85 +631,81 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
                   </div>
                 </div>
 
-                {/* Owner Payment Photo Upload & Management Card */}
-                <div className="bg-[#121622] p-4 rounded-2xl border border-[#d4af37]/30 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Camera className="w-4 h-4 text-[#f5d061]" />
-                      <span className="text-xs font-bold text-white">
-                        Owner Payment Photo (QR Scanner)
-                      </span>
+                {/* Owner Payment Photo Upload & Management Card - Exclusively for Administrator */}
+                {currentUser?.role === 'admin' && (
+                  <div className="bg-[#121622] p-4 rounded-2xl border border-[#d4af37]/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Camera className="w-4 h-4 text-[#f5d061]" />
+                        <span className="text-xs font-bold text-white">
+                          Administrator Master QR Scanner Config
+                        </span>
+                      </div>
+                      {ownerPaymentQr ? (
+                        <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> Custom Photo Active
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-amber-300 px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30">
+                          Default QR Active
+                        </span>
+                      )}
                     </div>
-                    {ownerPaymentQr ? (
-                      <span className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Custom Photo Active
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold text-amber-300 px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30">
-                        Default QR Active
-                      </span>
-                    )}
-                  </div>
 
-                  <p className="text-[11px] text-gray-400 leading-relaxed">
-                    Website owner can upload their own payment QR scanner photo from device files. When any amount is selected and you proceed, this photo is displayed for scanning.
-                  </p>
+                    <p className="text-[11px] text-gray-400 leading-relaxed">
+                      As administrator, you can configure the static payment QR scanner photo from device files. Regular players will only view the photo and have no option to upload or modify it.
+                    </p>
 
-                  <div className="flex items-center gap-3">
-                    {ownerPaymentQr ? (
-                      <div className="flex items-center gap-3 w-full">
-                        <img
-                          src={ownerPaymentQr}
-                          alt="Owner Payment QR"
-                          className="w-14 h-14 rounded-xl object-cover border border-[#d4af37] shadow-sm shrink-0"
-                        />
-                        <div className="flex-1 space-y-1">
-                          <p className="text-xs font-bold text-white">Your Photo is Ready</p>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={handleTriggerPhotoUpload}
-                              className="px-2.5 py-1 rounded-lg bg-[#182030] hover:bg-[#202b40] border border-[#2d3b55] text-[11px] font-bold text-[#f5d061] flex items-center gap-1 cursor-pointer"
-                            >
-                              {isAuthorized ? <Upload className="w-3 h-3" /> : <Lock className="w-3 h-3 text-amber-400" />}
-                              <span>{isAuthorized ? 'Change Photo' : 'Change Photo (Auth)'}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (isAuthorized) {
-                                  updateOwnerPaymentQr('');
-                                } else {
-                                  setAuthModalOpen(true);
-                                }
-                              }}
-                              className="px-2 py-1 rounded-lg bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-[11px] font-bold text-rose-300 flex items-center gap-1 cursor-pointer"
-                              title="Reset to default QR"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              <span>Remove</span>
-                            </button>
+                    <div className="flex items-center gap-3">
+                      {ownerPaymentQr ? (
+                        <div className="flex items-center gap-3 w-full">
+                          <img
+                            src={ownerPaymentQr}
+                            alt="Owner Payment QR"
+                            className="w-14 h-14 rounded-xl object-cover border border-[#d4af37] shadow-sm shrink-0"
+                          />
+                          <div className="flex-1 space-y-1">
+                            <p className="text-xs font-bold text-white">Your Photo is Ready</p>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleTriggerPhotoUpload}
+                                className="px-2.5 py-1 rounded-lg bg-[#182030] hover:bg-[#202b40] border border-[#2d3b55] text-[11px] font-bold text-[#f5d061] flex items-center gap-1 cursor-pointer"
+                              >
+                                <Upload className="w-3 h-3" />
+                                <span>Change Photo</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updateOwnerPaymentQr('')}
+                                className="px-2 py-1 rounded-lg bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-[11px] font-bold text-rose-300 flex items-center gap-1 cursor-pointer"
+                                title="Reset to default QR"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>Remove</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleTriggerPhotoUpload}
-                        className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#172030] to-[#121824] hover:from-[#202c42] hover:to-[#182030] border border-dashed border-[#d4af37]/60 text-xs font-bold text-[#f5d061] flex items-center justify-center gap-2 cursor-pointer transition-all shadow-inner"
-                      >
-                        {isAuthorized ? <Upload className="w-4 h-4 text-[#f5d061]" /> : <Lock className="w-4 h-4 text-amber-400" />}
-                        <span>Upload Owner Payment Scanner Photo (Admin / Owner Only)</span>
-                      </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleTriggerPhotoUpload}
+                          className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#172030] to-[#121824] hover:from-[#202c42] hover:to-[#182030] border border-dashed border-[#d4af37]/60 text-xs font-bold text-[#f5d061] flex items-center justify-center gap-2 cursor-pointer transition-all shadow-inner"
+                        >
+                          <Upload className="w-4 h-4 text-[#f5d061]" />
+                          <span>Upload Owner Payment Scanner Photo (Admin Exclusive)</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {photoUploadMsg && (
+                      <p className="text-[11px] text-emerald-400 font-bold bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/30">
+                        {photoUploadMsg}
+                      </p>
                     )}
                   </div>
-
-                  {photoUploadMsg && (
-                    <p className="text-[11px] text-emerald-400 font-bold bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/30">
-                      {photoUploadMsg}
-                    </p>
-                  )}
-                </div>
+                )}
 
                 {depositMsg && (
                   <div
@@ -826,44 +724,19 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
                   </div>
                 )}
 
-                {/* Razorpay Success Receipt Card (if paid) */}
-                {razorpaySuccessReceipt && (
-                  <div className="p-3.5 rounded-2xl bg-emerald-950/70 border border-emerald-500/50 text-xs space-y-1.5 animate-in fade-in">
-                    <div className="flex items-center gap-2 text-emerald-400 font-bold">
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Razorpay Payment Verified &bull; Wallet Credited!</span>
-                    </div>
-                    <div className="flex justify-between text-gray-300 font-mono text-[11px]">
-                      <span>Payment ID: {razorpaySuccessReceipt.paymentId}</span>
-                      <span className="font-bold text-[#f5d061]">+₹{razorpaySuccessReceipt.amount.toLocaleString('en-IN')}</span>
-                    </div>
-                    <div className="flex justify-between text-gray-400 text-[11px]">
-                      <span>Updated Balance:</span>
-                      <span className="font-mono text-emerald-300 font-bold">₹{razorpaySuccessReceipt.balanceAfter.toLocaleString('en-IN')}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Primary Razorpay Action Buttons */}
+                {/* Primary Action Button: Proceed to Static UPI QR Scanner */}
                 <div className="space-y-2 pt-1">
                   <button
                     type="button"
-                    onClick={handleRazorpayDeposit}
-                    disabled={isPayingRazorpay}
-                    className="w-full py-3.5 rounded-2xl font-black text-black bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:from-[#f5d061] hover:to-[#d4af37] shadow-[0_0_25px_rgba(212,175,55,0.4)] transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                    onClick={() => {
+                      setDepositStep('PAY');
+                      setDepositMsg(null);
+                    }}
+                    className="w-full py-3.5 rounded-2xl font-black text-black bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:from-[#f5d061] hover:to-[#d4af37] shadow-[0_0_25px_rgba(212,175,55,0.4)] transition-all cursor-pointer flex items-center justify-center gap-2"
                   >
-                    {isPayingRazorpay ? (
-                      <>
-                        <RotateCcw className="w-4 h-4 animate-spin" />
-                        <span>INITIALIZING RAZORPAY...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Lock className="w-4 h-4 text-black" />
-                        <span>PAY WITH RAZORPAY (₹{depositAmount.toLocaleString('en-IN')})</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
+                    <QrCode className="w-4 h-4 text-black" />
+                    <span>PROCEED TO UPI QR SCANNER (₹{depositAmount.toLocaleString('en-IN')})</span>
+                    <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -898,39 +771,93 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
                   </div>
                 </div>
 
-                {/* Display The Owner's Photo (or default high-res QR) */}
+                {/* 3 Explicit Payment Options: Google Pay, PhonePe, Paytm */}
+                <div className="bg-[#121622] p-3 rounded-2xl border border-[#242c3d] space-y-2">
+                  <span className="text-[11px] font-bold text-gray-300 block">
+                    Choose Your Preferred Payment Method:
+                  </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {/* Google Pay */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPaymentMethod('gpay')}
+                      className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                        selectedPaymentMethod === 'gpay'
+                          ? 'bg-[#4285F4]/20 border-[#4285F4] text-white shadow-[0_0_15px_rgba(66,133,244,0.3)] ring-1 ring-[#4285F4]'
+                          : 'bg-[#182030] border-[#242c3d] text-gray-400 hover:text-white hover:border-[#384860]'
+                      }`}
+                    >
+                      <span className="w-6 h-6 rounded-full bg-white flex items-center justify-center font-black text-xs text-[#4285F4] shadow-sm">
+                        G
+                      </span>
+                      <span className="text-[11px] font-bold">Google Pay</span>
+                    </button>
+
+                    {/* PhonePe */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPaymentMethod('phonepe')}
+                      className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                        selectedPaymentMethod === 'phonepe'
+                          ? 'bg-[#5f259f]/30 border-[#9d4edd] text-white shadow-[0_0_15px_rgba(157,78,221,0.3)] ring-1 ring-[#9d4edd]'
+                          : 'bg-[#182030] border-[#242c3d] text-gray-400 hover:text-white hover:border-[#384860]'
+                      }`}
+                    >
+                      <span className="w-6 h-6 rounded-full bg-[#5f259f] flex items-center justify-center font-black text-xs text-white shadow-sm">
+                        पे
+                      </span>
+                      <span className="text-[11px] font-bold">PhonePe</span>
+                    </button>
+
+                    {/* Paytm */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPaymentMethod('paytm')}
+                      className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                        selectedPaymentMethod === 'paytm'
+                          ? 'bg-[#002e6e]/40 border-[#00baf2] text-white shadow-[0_0_15px_rgba(0,186,242,0.3)] ring-1 ring-[#00baf2]'
+                          : 'bg-[#182030] border-[#242c3d] text-gray-400 hover:text-white hover:border-[#384860]'
+                      }`}
+                    >
+                      <span className="w-6 h-6 rounded-full bg-[#00baf2] flex items-center justify-center font-black text-[10px] text-white shadow-sm">
+                        Pay
+                      </span>
+                      <span className="text-[11px] font-bold">Paytm</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Display The Selected Method's Unique Static QR Code */}
                 <div className="bg-[#0b0e14] border-2 border-[#d4af37]/70 rounded-3xl p-5 flex flex-col items-center justify-center shadow-[0_0_40px_rgba(212,175,55,0.25)] relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-40 h-40 bg-[#d4af37]/10 rounded-full blur-2xl pointer-events-none" />
 
                   <div className="flex items-center gap-2 mb-3">
                     <QrCode className="w-4 h-4 text-[#f5d061]" />
                     <span className="text-xs font-bold text-white uppercase tracking-wider">
-                      {ownerPaymentQr ? 'Owner Payment Scanner Photo' : 'UPI Payment QR Scanner'}
+                      {activeMethodConfig?.name} Static QR Scanner
                     </span>
                   </div>
 
-                  {/* Photo / QR Image */}
+                  {/* Photo / QR Image (Strictly View-Only for regular players) */}
                   <div className="relative group bg-black/60 p-3 rounded-2xl border border-[#d4af37]/50 shadow-inner">
-                    {ownerPaymentQr ? (
-                      <img
-                        src={ownerPaymentQr}
-                        alt="Owner Payment Scanner"
-                        className="w-52 h-52 sm:w-60 sm:h-60 object-contain rounded-xl"
-                      />
-                    ) : (
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-                          `upi://pay?pa=bitora.vip.pay@okhdfcbank&pn=BITORA_CASINO&am=${depositAmount}&cu=INR&tn=VIP_DEPOSIT`
-                        )}&color=d4af37&bgcolor=0e121a`}
-                        alt="Payment QR Code"
-                        className="w-52 h-52 sm:w-60 sm:h-60 object-contain rounded-xl"
-                      />
-                    )}
+                    <img
+                      src={
+                        activeMethodConfig?.qrImageUrl ||
+                        ownerPaymentQr ||
+                        `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+                          `upi://pay?pa=${activeMethodConfig?.upiId || 'bitora.vip.pay@okhdfcbank'}&pn=${encodeURIComponent(
+                            activeMethodConfig?.payeeName || 'BITORA_CASINO'
+                          )}&am=${depositAmount}&cu=INR&tn=VIP_DEPOSIT`
+                        )}&color=d4af37&bgcolor=0e121a`
+                      }
+                      alt={`${activeMethodConfig?.name} QR Code`}
+                      className="w-52 h-52 sm:w-60 sm:h-60 object-contain rounded-xl"
+                    />
                   </div>
 
-                  {/* Text under photo: ONLY exact requested text with no numbers */}
+                  {/* Text under photo */}
                   <p className="text-xs sm:text-sm font-semibold text-gray-200 text-center mt-3 max-w-sm px-2">
-                    Scan this QR for more money and complete your payment within 10 minutes.
+                    Scan this QR using <strong className="text-[#f5d061]">{activeMethodConfig?.name}</strong> and complete your payment within 10 minutes.
                   </p>
 
                   {/* 10-Minute Live Countdown Timer */}
@@ -954,36 +881,19 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
                         : 'Credits release strictly upon 10-minute clearance. No instant credit.'}
                     </p>
                   </div>
-
-                  {/* Owner re-upload action right on this screen */}
-                  <div className="mt-2.5 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleTriggerPhotoUpload}
-                      className="px-3 py-1.5 rounded-xl bg-[#182030] hover:bg-[#222e44] border border-[#d4af37]/40 text-[11px] font-bold text-[#f5d061] flex items-center gap-1.5 cursor-pointer transition-all"
-                    >
-                      {isAuthorized ? <Upload className="w-3 h-3" /> : <Lock className="w-3 h-3 text-amber-400" />}
-                      <span>
-                        {ownerPaymentQr
-                          ? isAuthorized
-                            ? 'Replace Scanner Photo'
-                            : 'Replace Scanner Photo (Auth Required)'
-                          : isAuthorized
-                          ? 'Upload Your Scanner Photo'
-                          : 'Upload Your Scanner Photo (Auth Required)'}
-                      </span>
-                    </button>
-                  </div>
                 </div>
 
-                {/* UPI ID Details */}
+                {/* UPI ID & Payee Name Details */}
                 <div className="bg-[#121622] p-3 rounded-2xl border border-[#242c3d] flex items-center justify-between">
                   <div>
                     <span className="text-[10px] text-gray-400 uppercase tracking-wider font-bold block">
-                      Pay to UPI ID:
+                      Pay to {activeMethodConfig?.name} UPI ID:
                     </span>
-                    <span className="font-mono text-xs font-black text-white">
-                      bitora.vip.pay@okhdfcbank
+                    <span className="font-mono text-xs font-black text-amber-300">
+                      {activeMethodConfig?.upiId || 'bityora.vip@upi'}
+                    </span>
+                    <span className="text-[10px] text-gray-400 block mt-0.5">
+                      Payee: <span className="text-white font-medium">{activeMethodConfig?.payeeName}</span>
                     </span>
                   </div>
                   <button

@@ -35,7 +35,8 @@ import {
   Ban,
   Sliders,
 } from 'lucide-react';
-import { User, UserAccountStatus, RiskLevel, GameRecord } from '../../types';
+import { User, UserAccountStatus, RiskLevel, GameRecord, PaymentMethodType } from '../../types';
+import { DEFAULT_PAYMENT_METHOD_CONFIGS } from '../../utils/upiDeposit';
 
 interface AdminDashboardProps {
   onOpenExport?: () => void;
@@ -56,7 +57,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
     adminFlagIllicitBehavior,
     adminProcessDepositRequest,
     ownerPaymentQr,
+    ownerUpiId,
+    ownerPayeeName,
     updateOwnerPaymentQr,
+    paymentMethodConfigs,
+    updateMethodPaymentQr,
   } = useGame();
 
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -87,9 +92,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
   const [activitySearch, setActivitySearch] = useState<string>('');
   const [activityGameFilter, setActivityGameFilter] = useState<string>('ALL');
 
-  // Scanner state
+  // Multi-Method Scanner configuration state (Google Pay, PhonePe, Paytm)
+  const [selectedAdminMethod, setSelectedAdminMethod] = useState<PaymentMethodType>('gpay');
   const [newQrInputUrl, setNewQrInputUrl] = useState<string>('');
+  const [adminUpiIdInput, setAdminUpiIdInput] = useState<string>(
+    paymentMethodConfigs?.gpay?.upiId || 'bitora.gpay@okaxis'
+  );
+  const [adminPayeeNameInput, setAdminPayeeNameInput] = useState<string>(
+    paymentMethodConfigs?.gpay?.payeeName || 'Bitora VIP (Google Pay)'
+  );
+  const [adminInstructionsInput, setAdminInstructionsInput] = useState<string>(
+    paymentMethodConfigs?.gpay?.instructions || ''
+  );
   const [scannerSuccessMsg, setScannerSuccessMsg] = useState<string | null>(null);
+  const qrFileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Synchronize inputs whenever administrator changes selected payment method
+  const handleSelectAdminMethod = (m: PaymentMethodType) => {
+    setSelectedAdminMethod(m);
+    const cfg = paymentMethodConfigs[m] || DEFAULT_PAYMENT_METHOD_CONFIGS[m];
+    setAdminUpiIdInput(cfg.upiId);
+    setAdminPayeeNameInput(cfg.payeeName);
+    setAdminInstructionsInput(cfg.instructions);
+    setNewQrInputUrl('');
+    setScannerSuccessMsg(null);
+  };
+
+  // Deposit verification filters & proof viewer
+  const [depositSearchQuery, setDepositSearchQuery] = useState<string>('');
+  const [depositStatusFilter, setDepositStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
+  const [depositMethodFilter, setDepositMethodFilter] = useState<'ALL' | PaymentMethodType>('ALL');
+  const [adminSelectedScreenshot, setAdminSelectedScreenshot] = useState<{ url: string; title: string } | null>(null);
+  const [copiedUtrId, setCopiedUtrId] = useState<string | null>(null);
+
+  // Rejection modal state (no window.prompt)
+  const [rejectModalData, setRejectModalData] = useState<{
+    id: string;
+    username: string;
+    amount: number;
+    utr: string;
+  } | null>(null);
+  const [rejectReasonInput, setRejectReasonInput] = useState<string>(
+    'UTR not found on bank statement or amount mismatch'
+  );
 
   // System Prompt copy state
   const [promptCopied, setPromptCopied] = useState(false);
@@ -432,26 +477,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
 
         <button
           onClick={() => setActiveTab('deposits')}
-          className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all whitespace-nowrap ${
+          className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'deposits'
               ? 'border-[#d4af37] text-[#f5d061] bg-[#d4af37]/5'
               : 'border-transparent text-gray-400 hover:text-white'
           }`}
         >
           <Clock className="w-4 h-4" />
-          Deposit Demo Queue ({depositRequests.length})
+          <span>Manual Deposit Queue</span>
+          {depositRequests.filter(r => r.status === 'PENDING').length > 0 && (
+            <span className="bg-amber-500 text-black font-black text-[10px] px-1.5 py-0.2 rounded-full">
+              {depositRequests.filter(r => r.status === 'PENDING').length}
+            </span>
+          )}
         </button>
 
         <button
           onClick={() => setActiveTab('scanner')}
-          className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all whitespace-nowrap ${
+          className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'scanner'
               ? 'border-[#d4af37] text-[#f5d061] bg-[#d4af37]/5'
               : 'border-transparent text-gray-400 hover:text-white'
           }`}
         >
           <QrCode className="w-4 h-4" />
-          Owner QR Scanner
+          <span>Master UPI QR Control</span>
         </button>
       </div>
 
@@ -1007,131 +1057,676 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
         </div>
       )}
 
-      {/* Tab 5: Deposit Demo Queue */}
+      {/* Tab 5: Manual UPI Deposit Verification Queue */}
       {activeTab === 'deposits' && (
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-5 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
-              <h3 className="font-cinzel text-base font-bold text-white">Deposit Verification Queue</h3>
-              <p className="text-xs text-gray-400">Review, verify, and approve/reject manual QR deposit submissions.</p>
+              <h3 className="font-cinzel text-base font-bold text-white flex items-center gap-2">
+                <Clock className="w-5 h-5 text-amber-400" />
+                <span>Manual UPI Deposit Verification Queue</span>
+              </h3>
+              <p className="text-xs text-gray-400">
+                Audit player UTRs against bank statements and manually credit funds to unique Player IDs.
+              </p>
             </div>
-            <span className="text-xs font-mono-numbers text-amber-400 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/20">
-              {depositRequests.length} Total Requests
-            </span>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold text-amber-300 bg-amber-500/10 px-3 py-1 rounded-lg border border-amber-500/20">
+                {depositRequests.filter(r => r.status === 'PENDING').length} Pending Audit
+              </span>
+              <span className="text-xs font-mono text-gray-400 bg-[#121622] px-3 py-1 rounded-lg border border-[#242c3d]">
+                {depositRequests.length} Total Requests
+              </span>
+            </div>
           </div>
 
+          {/* Search & Filter Bar */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 pt-2">
+            <div className="relative w-full md:w-72">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search by Player ID, Username, or UTR..."
+                value={depositSearchQuery}
+                onChange={e => setDepositSearchQuery(e.target.value)}
+                className="w-full bg-[#121622] border border-[#242c3d] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#d4af37]"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Method Filters */}
+              <div className="flex items-center gap-1 bg-[#121622] p-1 rounded-xl border border-[#242c3d]">
+                <span className="text-[10px] text-gray-500 px-1 font-bold uppercase">Method:</span>
+                {(['ALL', 'gpay', 'phonepe', 'paytm'] as const).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setDepositMethodFilter(m)}
+                    className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      depositMethodFilter === m
+                        ? m === 'phonepe'
+                          ? 'bg-purple-600 text-white'
+                          : m === 'paytm'
+                          ? 'bg-cyan-500 text-black'
+                          : m === 'gpay'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-amber-500 text-black'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {m === 'ALL' ? 'All' : m === 'gpay' ? 'GPay' : m === 'phonepe' ? 'PhonePe' : 'Paytm'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Status Filters */}
+              <div className="flex items-center gap-1">
+                {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map(f => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setDepositStatusFilter(f)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                      depositStatusFilter === f
+                        ? 'bg-amber-500 text-black shadow-sm'
+                        : 'bg-[#121622] text-gray-400 hover:text-white border border-[#242c3d]'
+                    }`}
+                  >
+                    {f} {f === 'PENDING' && `(${depositRequests.filter(r => r.status === 'PENDING').length})`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Deposit Requests Table */}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-[#242c3d] text-gray-400 uppercase font-mono-numbers text-[10px]">
-                  <th className="py-2.5 px-3">Request ID</th>
-                  <th className="py-2.5 px-3">User</th>
+                <tr className="border-b border-[#242c3d] text-gray-400 uppercase font-mono text-[10px]">
+                  <th className="py-2.5 px-3">Req ID</th>
+                  <th className="py-2.5 px-3">Method</th>
+                  <th className="py-2.5 px-3">Player ID &amp; User</th>
                   <th className="py-2.5 px-3">Amount</th>
-                  <th className="py-2.5 px-3">Reference No</th>
+                  <th className="py-2.5 px-3">12-Digit UTR</th>
+                  <th className="py-2.5 px-3">Payment Proof</th>
                   <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3">Submitted At</th>
+                  <th className="py-2.5 px-3">Submitted</th>
                   <th className="py-2.5 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1e2535]">
-                {depositRequests.map(r => (
-                  <tr key={r.id} className="hover:bg-white/5 transition-colors">
-                    <td className="py-3 px-3 font-mono-numbers text-gray-400">{r.id}</td>
-                    <td className="py-3 px-3">
-                      <p className="font-bold text-white">{r.username}</p>
-                      <p className="font-mono-numbers text-[10px] text-[#f5d061]">{r.userId}</p>
-                    </td>
-                    <td className="py-3 px-3 font-mono-numbers font-bold text-emerald-400">
-                      ₹{r.amount.toLocaleString('en-IN')}
-                    </td>
-                    <td className="py-3 px-3 font-mono-numbers text-gray-300">{r.referenceNo}</td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          r.status === 'APPROVED'
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                            : r.status === 'REJECTED'
-                            ? 'bg-red-500/20 text-red-400 border border-red-500/40'
-                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                        }`}
-                      >
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-gray-500 text-[11px]">{r.createdAt}</td>
-                    <td className="py-3 px-3 text-right">
-                      {r.status === 'PENDING' && (
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => adminProcessDepositRequest(r.id, 'APPROVE')}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/40 border border-emerald-500/30 text-[11px] font-bold"
+                {depositRequests
+                  .filter(r => {
+                    const matchStatus = depositStatusFilter === 'ALL' || r.status === depositStatusFilter;
+                    const matchMethod =
+                      depositMethodFilter === 'ALL' ||
+                      r.paymentMethod === depositMethodFilter ||
+                      (!r.paymentMethod && depositMethodFilter === 'gpay');
+                    const q = depositSearchQuery.toLowerCase();
+                    const matchSearch =
+                      !q ||
+                      r.id.toLowerCase().includes(q) ||
+                      (r.playerId && r.playerId.toLowerCase().includes(q)) ||
+                      (r.userId && r.userId.toLowerCase().includes(q)) ||
+                      (r.username && r.username.toLowerCase().includes(q)) ||
+                      (r.utr && r.utr.toLowerCase().includes(q)) ||
+                      (r.referenceNo && r.referenceNo.toLowerCase().includes(q));
+                    return matchStatus && matchMethod && matchSearch;
+                  })
+                  .map(r => {
+                    // Check duplicate UTR across requests
+                    const duplicateCount = depositRequests.filter(
+                      other => other.utr && r.utr && other.utr.toLowerCase() === r.utr.toLowerCase()
+                    ).length;
+                    const isDuplicate = duplicateCount > 1;
+
+                    return (
+                      <tr key={r.id} className="hover:bg-white/5 transition-colors">
+                        <td className="py-3 px-3 font-mono text-gray-400 font-bold">{r.id}</td>
+                        <td className="py-3 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-1 ${
+                              r.paymentMethod === 'phonepe'
+                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                                : r.paymentMethod === 'paytm'
+                                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                                : 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                            }`}
                           >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => adminProcessDepositRequest(r.id, 'REJECT', 'Declined in supervisor review')}
-                            className="px-2.5 py-1 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/40 border border-red-500/30 text-[11px] font-bold"
+                            {r.paymentMethodName ||
+                              (r.paymentMethod === 'phonepe'
+                                ? 'PhonePe'
+                                : r.paymentMethod === 'paytm'
+                                ? 'Paytm'
+                                : 'Google Pay')}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3">
+                          <p className="font-bold text-white flex items-center gap-1.5">
+                            <span>{r.username}</span>
+                          </p>
+                          <div className="flex items-center gap-1 text-[10px] font-mono text-cyan-300">
+                            <span>ID:</span>
+                            <span className="font-bold">{r.playerId || r.userId}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 font-mono font-black text-emerald-400 text-sm">
+                          ₹{r.amount.toLocaleString('en-IN')}
+                        </td>
+                        <td className="py-3 px-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                              {r.utr || r.referenceNo || 'N/A'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(r.utr || r.referenceNo || '');
+                                setCopiedUtrId(r.id);
+                                setTimeout(() => setCopiedUtrId(null), 2000);
+                              }}
+                              className="p-1 rounded bg-[#182030] text-gray-400 hover:text-white"
+                              title="Copy UTR to verify in bank portal"
+                            >
+                              {copiedUtrId === r.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            </button>
+                          </div>
+                          {isDuplicate && (
+                            <span className="text-[9px] text-red-400 font-bold block mt-0.5">
+                              ⚠️ Warning: {duplicateCount} requests with this UTR
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          {r.screenshotUrl ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setAdminSelectedScreenshot({
+                                  url: r.screenshotUrl,
+                                  title: `Proof for ${r.id} (${r.username} - ₹${r.amount} via ${r.paymentMethodName || 'UPI'})`,
+                                })
+                              }
+                              className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-cyan-950/40 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-900/50 transition-colors font-bold text-[11px] cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View Proof</span>
+                            </button>
+                          ) : (
+                            <span className="text-gray-500 text-[10px]">No attachment</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold inline-block ${
+                              r.status === 'APPROVED'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                : r.status === 'REJECTED'
+                                ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                                : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            }`}
                           >
-                            Reject
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                            {r.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-gray-400 text-[11px] whitespace-nowrap">{r.createdAt}</td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap">
+                          {r.status === 'PENDING' ? (
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  adminProcessDepositRequest(r.id, 'APPROVE');
+                                  setFeedback({
+                                    type: 'success',
+                                    text: `Verified UTR ${r.utr} and credited ₹${r.amount} to Player ${r.playerId || r.userId} (${r.username})!`,
+                                  });
+                                  setTimeout(() => setFeedback(null), 5000);
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black transition-all shadow-md cursor-pointer hover:scale-105 active:scale-95"
+                                title="Verify UTR and credit funds to player wallet"
+                              >
+                                Verify &amp; Credit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRejectModalData({
+                                    id: r.id,
+                                    username: r.username,
+                                    amount: r.amount,
+                                    utr: r.utr,
+                                  });
+                                  setRejectReasonInput('UTR invalid or payment not received on bank statement');
+                                }}
+                                className="px-2.5 py-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-500/30 text-xs font-bold transition-all cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-gray-500">
+                              {r.status === 'APPROVED' ? `Credited by ${r.adminId || 'Admin'}` : 'Declined'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* Tab 6: Owner Payment QR Scanner */}
+      {/* Tab 6: Master Static UPI QR Code Configuration (Exclusively Administrator) */}
+      {/* Configure 3 Explicit Payment Options: Google Pay, PhonePe, Paytm */}
       {activeTab === 'scanner' && (
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-6 shadow-xl space-y-6">
-          <div>
-            <h3 className="font-cinzel text-base font-bold text-white flex items-center gap-2">
-              <QrCode className="w-5 h-5 text-amber-400" />
-              Owner Payment QR Scanner Control
-            </h3>
-            <p className="text-xs text-gray-400 mt-1">
-              Configure the master UPI scanner image displayed to players across all top-up modals.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#242c3d] pb-4">
+            <div>
+              <h3 className="font-cinzel text-base font-bold text-white flex items-center gap-2">
+                <QrCode className="w-5 h-5 text-amber-400" />
+                <span>3-Method Static UPI QR Code &amp; Payee Control</span>
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                Upload and configure unique static QR codes for Google Pay, PhonePe, and Paytm. Regular players only view their chosen method's QR code.
+              </p>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold uppercase tracking-wider self-start sm:self-auto">
+              Administrator Exclusive
+            </span>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-xl bg-[#121622] border border-[#242c3d]">
-            <img
-              src={ownerPaymentQr || 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=bitora.casino@upi'}
-              alt="Active Owner Payment QR"
-              className="w-36 h-36 rounded-xl border border-amber-500/40 object-cover bg-white p-1"
-            />
-            <div className="space-y-2 flex-1">
-              <span className="text-xs font-bold text-white block">Current Scanner Configuration</span>
-              <p className="text-xs text-gray-400">
-                Status: <span className="text-emerald-400 font-bold">{ownerPaymentQr ? 'Custom Image Active' : 'Default Platform QR'}</span>
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  placeholder="Paste direct image URL for new QR scanner..."
-                  value={newQrInputUrl}
-                  onChange={e => setNewQrInputUrl(e.target.value)}
-                  className="flex-1 bg-[#0b0e14] border border-[#242c3d] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#d4af37]"
-                />
+          {/* 3 Payment Options Selector for Admin */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {(['gpay', 'phonepe', 'paytm'] as const).map(methodKey => {
+              const cfg = paymentMethodConfigs[methodKey] || DEFAULT_PAYMENT_METHOD_CONFIGS[methodKey];
+              const isSelected = selectedAdminMethod === methodKey;
+              return (
                 <button
-                  onClick={() => {
-                    if (newQrInputUrl.trim()) {
-                      updateOwnerPaymentQr(newQrInputUrl.trim());
-                      setScannerSuccessMsg('Master QR scanner successfully updated!');
-                      setTimeout(() => setScannerSuccessMsg(null), 3000);
-                      setNewQrInputUrl('');
+                  key={methodKey}
+                  type="button"
+                  onClick={() => handleSelectAdminMethod(methodKey)}
+                  className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex items-center justify-between ${
+                    isSelected
+                      ? methodKey === 'phonepe'
+                        ? 'bg-purple-950/40 border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.3)]'
+                        : methodKey === 'paytm'
+                        ? 'bg-cyan-950/40 border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)]'
+                        : 'bg-blue-950/40 border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.3)]'
+                      : 'bg-[#121622] border-[#242c3d] hover:border-gray-600'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
+                        methodKey === 'gpay'
+                          ? 'bg-white text-blue-600'
+                          : methodKey === 'phonepe'
+                          ? 'bg-[#5f259f] text-white'
+                          : 'bg-[#002e6e] text-[#00b9f1]'
+                      }`}
+                    >
+                      {methodKey === 'gpay' ? 'GPay' : methodKey === 'phonepe' ? 'पे' : 'Paytm'}
+                    </div>
+                    <div>
+                      <p className="font-bold text-xs text-white">{cfg.name}</p>
+                      <p className="text-[10px] text-gray-400 font-mono truncate max-w-[140px]">
+                        {cfg.upiId}
+                      </p>
+                    </div>
+                  </div>
+
+                  {isSelected && (
+                    <span className="w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center font-bold text-xs">
+                      ✓
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Configuration Form for Selected Method */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Live Player View Preview */}
+            <div className="lg:col-span-5 bg-[#121622] border border-[#242c3d] rounded-2xl p-5 flex flex-col items-center justify-center text-center space-y-3">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                Live Player View: {paymentMethodConfigs[selectedAdminMethod]?.name || 'Google Pay'}
+              </span>
+
+              <div className="p-3 bg-white rounded-2xl shadow-xl border-4 border-[#ffd700] relative">
+                <img
+                  src={
+                    paymentMethodConfigs[selectedAdminMethod]?.qrImageUrl ||
+                    DEFAULT_PAYMENT_METHOD_CONFIGS[selectedAdminMethod].qrImageUrl
+                  }
+                  alt={`${paymentMethodConfigs[selectedAdminMethod]?.name} QR Scanner`}
+                  className="w-48 h-48 object-contain rounded-lg"
+                />
+                <span className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 bg-[#080a10] border border-[#d4af37] text-[#ffd700] font-black text-[9px] px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                  {selectedAdminMethod.toUpperCase()} STATIC QR
+                </span>
+              </div>
+
+              <div className="w-full space-y-1.5 text-left bg-[#080a10] p-3 rounded-xl border border-[#242c3d] mt-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Method Name:</span>
+                  <span className="font-bold text-white">
+                    {paymentMethodConfigs[selectedAdminMethod]?.name}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Payee Name:</span>
+                  <span className="font-bold text-white">{adminPayeeNameInput}</span>
+                </div>
+                <div className="flex justify-between text-xs font-mono">
+                  <span className="text-gray-400">UPI ID (VPA):</span>
+                  <span className="text-amber-300 font-bold">{adminUpiIdInput}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Config Controls */}
+            <div className="lg:col-span-7 space-y-4">
+              {/* File upload for selected method's QR image */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-white block">
+                  1. Upload New QR Image for {paymentMethodConfigs[selectedAdminMethod]?.name} from Device:
+                </label>
+                <input
+                  type="file"
+                  ref={qrFileInputRef}
+                  accept="image/*"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = ev => {
+                        const dataUrl = ev.target?.result as string;
+                        updateMethodPaymentQr(
+                          selectedAdminMethod,
+                          dataUrl,
+                          adminUpiIdInput,
+                          adminPayeeNameInput,
+                          adminInstructionsInput
+                        );
+                        setScannerSuccessMsg(
+                          `QR image for ${paymentMethodConfigs[selectedAdminMethod]?.name} updated directly from uploaded file!`
+                        );
+                        setTimeout(() => setScannerSuccessMsg(null), 4000);
+                      };
+                      reader.readAsDataURL(file);
                     }
                   }}
-                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors shrink-0"
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => qrFileInputRef.current?.click()}
+                  className="w-full py-3 rounded-xl bg-[#161c2b] hover:bg-[#1e2538] border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
                 >
-                  Update QR
+                  <Upload className="w-4 h-4 text-amber-400" />
+                  <span>Choose Image File (PNG, JPG, WEBP) for {paymentMethodConfigs[selectedAdminMethod]?.name}...</span>
                 </button>
               </div>
-              {scannerSuccessMsg && <p className="text-xs text-emerald-400 font-bold">{scannerSuccessMsg}</p>}
+
+              {/* Direct Image URL input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-white block">
+                  Or Paste Direct Image URL:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder={`https://example.com/${selectedAdminMethod}-qr.png`}
+                    value={newQrInputUrl}
+                    onChange={e => setNewQrInputUrl(e.target.value)}
+                    className="flex-1 bg-[#0b0e14] border border-[#242c3d] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#d4af37]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newQrInputUrl.trim()) {
+                        updateMethodPaymentQr(
+                          selectedAdminMethod,
+                          newQrInputUrl.trim(),
+                          adminUpiIdInput,
+                          adminPayeeNameInput,
+                          adminInstructionsInput
+                        );
+                        setScannerSuccessMsg(
+                          `QR code URL for ${paymentMethodConfigs[selectedAdminMethod]?.name} applied successfully!`
+                        );
+                        setTimeout(() => setScannerSuccessMsg(null), 3000);
+                        setNewQrInputUrl('');
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors cursor-pointer shrink-0"
+                  >
+                    Apply URL
+                  </button>
+                </div>
+              </div>
+
+              {/* Payee UPI ID */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-white block">
+                  2. Official {paymentMethodConfigs[selectedAdminMethod]?.name} UPI ID (VPA):
+                </label>
+                <input
+                  type="text"
+                  value={adminUpiIdInput}
+                  onChange={e => setAdminUpiIdInput(e.target.value)}
+                  placeholder={`e.g. bitora.${selectedAdminMethod}@upi`}
+                  className="w-full bg-[#0b0e14] border border-[#242c3d] rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-[#d4af37]"
+                />
+              </div>
+
+              {/* Payee Display Name */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-white block">
+                  3. Payee Display Name:
+                </label>
+                <input
+                  type="text"
+                  value={adminPayeeNameInput}
+                  onChange={e => setAdminPayeeNameInput(e.target.value)}
+                  placeholder={`e.g. Bitora VIP (${paymentMethodConfigs[selectedAdminMethod]?.name})`}
+                  className="w-full bg-[#0b0e14] border border-[#242c3d] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#d4af37]"
+                />
+              </div>
+
+              {/* Instructions */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-white block">
+                  4. Payment Instructions for Players:
+                </label>
+                <textarea
+                  rows={2}
+                  value={adminInstructionsInput}
+                  onChange={e => setAdminInstructionsInput(e.target.value)}
+                  placeholder={`Enter specific instructions for paying via ${paymentMethodConfigs[selectedAdminMethod]?.name}...`}
+                  className="w-full bg-[#0b0e14] border border-[#242c3d] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#d4af37] resize-none"
+                />
+              </div>
+
+              {/* Save & Reset Actions */}
+              <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateMethodPaymentQr(
+                      selectedAdminMethod,
+                      newQrInputUrl.trim() || paymentMethodConfigs[selectedAdminMethod]?.qrImageUrl,
+                      adminUpiIdInput.trim(),
+                      adminPayeeNameInput.trim(),
+                      adminInstructionsInput.trim()
+                    );
+                    setScannerSuccessMsg(
+                      `All QR & UPI settings for ${paymentMethodConfigs[selectedAdminMethod]?.name} saved successfully!`
+                    );
+                    setTimeout(() => setScannerSuccessMsg(null), 4000);
+                  }}
+                  className="w-full sm:flex-1 py-3 rounded-xl bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:from-[#f5d061] hover:to-[#d4af37] text-black font-black text-xs shadow-lg cursor-pointer transition-all"
+                >
+                  Save {paymentMethodConfigs[selectedAdminMethod]?.name} QR Settings
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const def = DEFAULT_PAYMENT_METHOD_CONFIGS[selectedAdminMethod];
+                    setAdminUpiIdInput(def.upiId);
+                    setAdminPayeeNameInput(def.payeeName);
+                    setAdminInstructionsInput(def.instructions);
+                    updateMethodPaymentQr(
+                      selectedAdminMethod,
+                      def.qrImageUrl,
+                      def.upiId,
+                      def.payeeName,
+                      def.instructions
+                    );
+                    setScannerSuccessMsg(`Reset ${def.name} to default static QR code.`);
+                    setTimeout(() => setScannerSuccessMsg(null), 3000);
+                  }}
+                  className="w-full sm:w-auto px-4 py-3 rounded-xl bg-[#141b27] hover:bg-[#1a2333] border border-[#242c3d] text-gray-300 text-xs font-bold cursor-pointer"
+                >
+                  Reset {paymentMethodConfigs[selectedAdminMethod]?.name} Default
+                </button>
+              </div>
+
+              {scannerSuccessMsg && (
+                <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{scannerSuccessMsg}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADMIN REJECTION CONFIRMATION (REPLACES WINDOW.PROMPT) */}
+      {rejectModalData && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0e121a] border-2 border-red-500/50 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#242c3d] pb-3">
+              <h4 className="font-cinzel text-base font-bold text-white flex items-center gap-2 text-red-400">
+                <ShieldAlert className="w-5 h-5 text-red-400" />
+                <span>Reject Deposit Request {rejectModalData.id}</span>
+              </h4>
+              <button
+                type="button"
+                onClick={() => setRejectModalData(null)}
+                className="text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-[#121622] rounded-xl border border-[#242c3d] text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-gray-400">Player Username:</span>
+                <span className="font-bold text-white">{rejectModalData.username}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Claimed Amount:</span>
+                <span className="font-bold text-emerald-400">₹{rejectModalData.amount}</span>
+              </div>
+              <div className="flex justify-between font-mono">
+                <span className="text-gray-400">Submitted UTR:</span>
+                <span className="font-bold text-amber-300">{rejectModalData.utr}</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-300 block">
+                Official Reason for Player:
+              </label>
+              <textarea
+                rows={3}
+                value={rejectReasonInput}
+                onChange={e => setRejectReasonInput(e.target.value)}
+                placeholder="e.g. UTR not found on bank statement, payment reversed, amount mismatch..."
+                className="w-full bg-[#080a10] border border-[#242c3d] rounded-xl p-3 text-xs text-white focus:outline-none focus:border-red-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setRejectModalData(null)}
+                className="px-4 py-2 rounded-xl bg-[#141926] text-gray-300 text-xs font-bold hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  adminProcessDepositRequest(
+                    rejectModalData.id,
+                    'REJECT',
+                    rejectReasonInput.trim() || 'Declined during manual supervisor audit'
+                  );
+                  setFeedback({
+                    type: 'error',
+                    text: `Deposit request ${rejectModalData.id} rejected. Reason logged for player.`,
+                  });
+                  setTimeout(() => setFeedback(null), 4000);
+                  setRejectModalData(null);
+                }}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-md cursor-pointer"
+              >
+                Confirm Rejection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ADMIN SCREENSHOT PROOF ZOOM */}
+      {adminSelectedScreenshot && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0e121a] border-2 border-[#d4af37]/60 rounded-3xl p-5 max-w-2xl w-full max-h-[90vh] flex flex-col space-y-4 relative shadow-2xl animate-scaleUp">
+            <div className="flex items-center justify-between border-b border-[#242c3d] pb-3">
+              <div className="flex items-center gap-2">
+                <ImageIcon className="w-5 h-5 text-[#ffd700]" />
+                <h4 className="font-cinzel text-base font-bold text-white truncate max-w-md">
+                  {adminSelectedScreenshot.title}
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdminSelectedScreenshot(null)}
+                className="p-1.5 rounded-lg bg-[#141926] text-gray-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto rounded-xl border border-[#242c3d] bg-black flex items-center justify-center p-2">
+              <img
+                src={adminSelectedScreenshot.url}
+                alt="High resolution payment slip proof"
+                className="max-h-[70vh] object-contain rounded"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[11px] text-gray-400">
+                Verify UTR, amount, and recipient UPI ID against bank statement before approving.
+              </span>
+              <button
+                type="button"
+                onClick={() => setAdminSelectedScreenshot(null)}
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#aa820a] text-black font-bold text-xs cursor-pointer"
+              >
+                Close View
+              </button>
             </div>
           </div>
         </div>

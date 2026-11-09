@@ -378,14 +378,14 @@ export const HomeHub: React.FC<HomeHubProps> = ({ onSelectTab, onOpenCashier, on
           </button>
         </div>
 
-        {/* Feature 2: Official Razorpay Gateway */}
+        {/* Feature 2: Manual UPI QR Deposit */}
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-5 space-y-3">
           <div className="flex items-center gap-2.5 text-[#f5d061]">
             <Zap className="w-5 h-5 text-emerald-400" />
-            <h4 className="font-cinzel text-sm font-bold text-white">Live Razorpay Gateway</h4>
+            <h4 className="font-cinzel text-sm font-bold text-white">Manual UPI QR Deposit</h4>
           </div>
           <p className="text-xs text-gray-400">
-            Secure, instant wallet credits via Razorpay. Supports UPI (GPay, PhonePe, Paytm), Net Banking, and Debit/Credit cards.
+            Scan our verified static UPI QR code, transfer funds from any UPI app, and submit your UTR &amp; screenshot for fast manual credit.
           </p>
           <button
             onClick={() => onSelectTab('deposit')}

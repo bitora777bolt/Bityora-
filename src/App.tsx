@@ -457,7 +457,7 @@ function AppContent() {
                 onClick={() => handleSelectTab('deposit')}
                 className="hover:text-white transition-colors text-emerald-400"
               >
-                Deposit (Razorpay)
+                Deposit (UPI QR)
               </button>
               <button
                 onClick={() => handleSelectTab('ai_studio')}

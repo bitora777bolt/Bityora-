@@ -13,6 +13,8 @@ import {
   DailyCheckInState,
   DailySpinState,
   DailySpinSegment,
+  PaymentMethodType,
+  PaymentMethodConfig,
 } from '../types';
 import { sounds } from '../utils/soundEffects';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -24,6 +26,7 @@ import {
   getTodayDateKey,
 } from '../utils/dailyCheckIn';
 import { getUserDailySpinState } from '../utils/dailySpin';
+import { DEFAULT_PAYMENT_METHOD_CONFIGS } from '../utils/upiDeposit';
 
 interface GameContextType {
   currentUser: User | null;
@@ -43,17 +46,9 @@ interface GameContextType {
   registerUser: (username: string, email: string, phone: string) => User;
   logout: () => void;
   updateProfile: (updates: Partial<User>) => void;
-  // Credits & Winnings Balance (Razorpay Payment Gateway & Instant Wallet Credit)
+  // Credits & Winnings Balance
   topUpVirtualCredits: (amount: number) => { success: boolean; message: string };
   submitDeposit: (amount: number, method?: string, referenceNo?: string) => { success: boolean; message: string; pendingDeposit?: PendingDeposit };
-  creditWalletFromRazorpay: (
-    amount: number,
-    paymentId: string,
-    orderId: string,
-    method?: string
-  ) => { success: boolean; message: string; balanceAfter: number };
-  razorpaySuccessNotification: { amount: number; paymentId: string; orderId: string } | null;
-  dismissRazorpayNotification: () => void;
   submitWithdrawal: (amount: number, destination: string) => { success: boolean; message: string };
   instantRefillCredits: (amount?: number) => void;
   depositHistory: Transaction[];
@@ -84,12 +79,37 @@ interface GameContextType {
   canUserPlay: (user?: User | null) => { allowed: boolean; reason?: string; status: UserAccountStatus };
   canUserTransact: (user?: User | null) => { allowed: boolean; reason?: string; status: UserAccountStatus };
   trackUserGameSession: (userId: string, gameName: string, status: GameSessionStatus) => void;
-  // Deposit Request Demo
-  submitDepositRequest: (amount: number, referenceNo: string, qrUrl: string) => DepositRequest;
+  // Deposit Request & Manual UPI Flow
+  submitDepositRequest: (
+    dataOrAmount:
+      | number
+      | {
+          amount: number;
+          utr: string;
+          screenshotUrl: string;
+          playerId?: string;
+          paymentMethod?: PaymentMethodType;
+          screenshotName?: string;
+          screenshotSize?: string;
+        },
+    referenceNo?: string,
+    qrUrl?: string
+  ) => DepositRequest;
   adminProcessDepositRequest: (requestId: string, action: 'APPROVE' | 'REJECT', reason?: string) => void;
-  // Deposit QR / Payment Photo
+  // Multi-Method Deposit QR Configs (Google Pay, PhonePe, Paytm)
+  paymentMethodConfigs: Record<PaymentMethodType, PaymentMethodConfig>;
+  updateMethodPaymentQr: (
+    method: PaymentMethodType,
+    photoUrl: string,
+    upiId?: string,
+    payeeName?: string,
+    instructions?: string
+  ) => boolean;
+  // Deposit QR / Payment Photo (Legacy/Fallback)
   ownerPaymentQr: string;
-  updateOwnerPaymentQr: (photoUrl: string) => boolean;
+  ownerUpiId: string;
+  ownerPayeeName: string;
+  updateOwnerPaymentQr: (photoUrl: string, upiId?: string, payeeName?: string) => boolean;
   // Reset
   resetDemoData: () => void;
   // First-Time Visitor Welcome Guarantee (₹100 Guaranteed Profit on First Game)
@@ -336,10 +356,15 @@ const DEFAULT_DEPOSIT_REQUESTS: DepositRequest[] = [
   {
     id: 'DEP-40192',
     userId: 'BIT-782914',
+    playerId: 'BIT-782914',
     username: 'Aarav Royal',
+    paymentMethod: 'phonepe',
+    paymentMethodName: 'PhonePe',
     amount: 500,
-    referenceNo: 'UPI-DEMO-994821',
-    qrUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=bitora.demo@bank&pn=BITORA_DEMO&am=500',
+    utr: '429810284912',
+    referenceNo: '429810284912',
+    screenshotUrl: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=600&auto=format&fit=crop&q=80',
+    qrUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=bitora.phonepe@ybl&pn=Bitora%20VIP%20PhonePe&am=500',
     status: 'APPROVED',
     createdAt: '2026-10-27 14:10:00',
     processedAt: '2026-10-27 14:15:22',
@@ -348,10 +373,15 @@ const DEFAULT_DEPOSIT_REQUESTS: DepositRequest[] = [
   {
     id: 'DEP-40193',
     userId: 'BIT-990142',
+    playerId: 'BIT-990142',
     username: 'Priya Mehta',
+    paymentMethod: 'gpay',
+    paymentMethodName: 'Google Pay',
     amount: 1000,
-    referenceNo: 'UPI-DEMO-883102',
-    qrUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=bitora.demo@bank&pn=BITORA_DEMO&am=1000',
+    utr: '908219482103',
+    referenceNo: '908219482103',
+    screenshotUrl: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=600&auto=format&fit=crop&q=80',
+    qrUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=bitora.gpay@okaxis&pn=Bitora%20VIP%20GPay&am=1000',
     status: 'PENDING',
     createdAt: '2026-10-27 17:05:14',
   },
@@ -481,43 +511,127 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const dismissPhoneBonusNotification = dismissWelcomeBonusNotification;
   const hasClaimedPhoneBonus = hasClaimedWelcomeBonus;
 
-  // Razorpay Online Payment Success State
-  const [razorpaySuccessNotification, setRazorpaySuccessNotification] = useState<{
-    amount: number;
-    paymentId: string;
-    orderId: string;
-  } | null>(null);
 
-  const dismissRazorpayNotification = () => {
-    setRazorpaySuccessNotification(null);
-  };
+  // Administrator-Configured Static Payment UPI QR Codes for 3 Methods (Google Pay, PhonePe, Paytm)
+  const [paymentMethodConfigs, setPaymentMethodConfigs] = useState<Record<PaymentMethodType, PaymentMethodConfig>>(() => {
+    try {
+      const saved = localStorage.getItem('bitora_payment_methods_config');
+      if (saved) {
+        return { ...DEFAULT_PAYMENT_METHOD_CONFIGS, ...JSON.parse(saved) };
+      }
+    } catch {}
+    return DEFAULT_PAYMENT_METHOD_CONFIGS;
+  });
 
-  // Owner Custom Payment Photo / QR Scanner
   const [ownerPaymentQr, setOwnerPaymentQrState] = useState<string>(() => {
     try {
-      return localStorage.getItem('bitora_owner_deposit_qr') || '';
+      return (
+        localStorage.getItem('bitora_owner_deposit_qr') ||
+        DEFAULT_PAYMENT_METHOD_CONFIGS.gpay.qrImageUrl
+      );
     } catch {
-      return '';
+      return DEFAULT_PAYMENT_METHOD_CONFIGS.gpay.qrImageUrl;
     }
   });
 
-  const updateOwnerPaymentQr = (photoUrl: string) => {
-    // Authority check: user must be an administrator or have session authorization
-    const isAuthorized = currentUser?.role === 'admin' || (typeof window !== 'undefined' && sessionStorage.getItem('bitora_scanner_authorized') === 'true');
-    if (!isAuthorized && photoUrl) {
-      console.warn('Authority check failed: only administrators or authorized users can replace the QR code photo.');
+  const [ownerUpiId, setOwnerUpiId] = useState<string>(() => {
+    try {
+      return localStorage.getItem('bitora_owner_upi_id') || DEFAULT_PAYMENT_METHOD_CONFIGS.gpay.upiId;
+    } catch {
+      return DEFAULT_PAYMENT_METHOD_CONFIGS.gpay.upiId;
+    }
+  });
+
+  const [ownerPayeeName, setOwnerPayeeName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('bitora_owner_payee_name') || DEFAULT_PAYMENT_METHOD_CONFIGS.gpay.payeeName;
+    } catch {
+      return DEFAULT_PAYMENT_METHOD_CONFIGS.gpay.payeeName;
+    }
+  });
+
+  // Sync with server deposit config on mount
+  useEffect(() => {
+    fetch('/api/deposit/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.success) {
+          if (data.methods) {
+            setPaymentMethodConfigs(prev => ({ ...prev, ...data.methods }));
+          }
+          if (data.config) {
+            if (data.config.qrImageUrl) setOwnerPaymentQrState(data.config.qrImageUrl);
+            if (data.config.upiId) setOwnerUpiId(data.config.upiId);
+            if (data.config.payeeName) setOwnerPayeeName(data.config.payeeName);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Update a specific payment method QR code (Google Pay, PhonePe, or Paytm) - Exclusively Administrator
+  const updateMethodPaymentQr = (
+    method: PaymentMethodType,
+    photoUrl: string,
+    upiId?: string,
+    payeeName?: string,
+    instructions?: string
+  ): boolean => {
+    if (currentUser?.role !== 'admin') {
+      console.warn('Authority check failed: only administrators can configure deposit QR codes.');
       return false;
     }
 
-    setOwnerPaymentQrState(photoUrl);
-    try {
-      if (photoUrl) {
-        localStorage.setItem('bitora_owner_deposit_qr', photoUrl);
-      } else {
-        localStorage.removeItem('bitora_owner_deposit_qr');
-      }
-    } catch {}
+    setPaymentMethodConfigs(prev => {
+      const target = prev[method] || DEFAULT_PAYMENT_METHOD_CONFIGS[method];
+      const updated: PaymentMethodConfig = {
+        ...target,
+        qrImageUrl: photoUrl || target.qrImageUrl,
+        upiId: upiId !== undefined ? upiId : target.upiId,
+        payeeName: payeeName !== undefined ? payeeName : target.payeeName,
+        instructions: instructions !== undefined ? instructions : target.instructions,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser.id,
+      };
+      const next = { ...prev, [method]: updated };
+      try {
+        localStorage.setItem('bitora_payment_methods_config', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // Also mirror to legacy single state if gpay
+    if (method === 'gpay') {
+      if (photoUrl) setOwnerPaymentQrState(photoUrl);
+      if (upiId) setOwnerUpiId(upiId);
+      if (payeeName) setOwnerPayeeName(payeeName);
+      try {
+        if (photoUrl) localStorage.setItem('bitora_owner_deposit_qr', photoUrl);
+        if (upiId) localStorage.setItem('bitora_owner_upi_id', upiId);
+        if (payeeName) localStorage.setItem('bitora_owner_payee_name', payeeName);
+      } catch {}
+    }
+
+    // Sync to backend /api/deposit/config
+    fetch('/api/deposit/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method,
+        qrImageUrl: photoUrl,
+        upiId,
+        payeeName,
+        instructions,
+        adminRole: 'admin',
+        adminId: currentUser.id,
+      }),
+    }).catch(() => {});
+
     return true;
+  };
+
+  const updateOwnerPaymentQr = (photoUrl: string, upiId?: string, payeeName?: string): boolean => {
+    return updateMethodPaymentQr('gpay', photoUrl, upiId, payeeName);
   };
 
   // 10-Minute Deposit Clearance System
@@ -1271,99 +1385,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   };
 
-  // Razorpay Instant Wallet Crediting: Automatically credits player wallet upon verified payment
-  const creditWalletFromRazorpay = (
-    amount: number,
-    paymentId: string,
-    orderId: string,
-    method = 'Razorpay Instant UPI / Card'
-  ): { success: boolean; message: string; balanceAfter: number } => {
-    if (!currentUser) return { success: false, message: 'No active player session.', balanceAfter: 0 };
-    const numAmount = Number(amount);
-    if (!numAmount || isNaN(numAmount) || numAmount <= 0) {
-      return { success: false, message: 'Invalid deposit amount.', balanceAfter: currentUser.balance };
-    }
-
-    const newBalance = currentUser.balance + numAmount;
-
-    // 1. Instantly credit balance in users state
-    setUsers(prev => prev.map(u => (u.id === currentUser.id ? { ...u, balance: newBalance } : u)));
-
-    // 2. Record COMPLETED transaction immediately
-    const exactTime = formatExactTimestamp();
-    const txnId = `TXN-RP-${paymentId.replace(/^pay_/, '').slice(-6) || Date.now().toString().slice(-6)}`;
-    const newTxn: Transaction = {
-      id: txnId,
-      userId: currentUser.id,
-      type: 'TOP_UP',
-      amount: numAmount,
-      balanceAfter: newBalance,
-      status: 'COMPLETED',
-      timestamp: exactTime,
-      note: `Razorpay Online Payment (${method}) - ID: ${paymentId}`,
-    };
-    setTransactions(prev => [newTxn, ...prev]);
-
-    // 3. Mark any matching pending 10-min deposits as CLEARED immediately
-    setPendingDeposits(prev =>
-      prev.map(p =>
-        p.userId === currentUser.id && p.status === 'PENDING_10_MIN' && p.amount === numAmount
-          ? { ...p, status: 'CLEARED' as const }
-          : p
-      )
-    );
-
-    // 4. Celebratory sound and alert banner
-    sounds.cashOutWin();
-    setDepositClearanceNotification(
-      `🎉 Razorpay Payment Verified! ₹${numAmount.toLocaleString('en-IN')} has been credited to your wallet balance.`
-    );
-    setRazorpaySuccessNotification({
-      amount: numAmount,
-      paymentId,
-      orderId,
-    });
-
-    // 5. Sync to Firestore if authenticated session active
-    try {
-      if (db && auth.currentUser && auth.currentUser.uid === currentUser.id) {
-        setDoc(
-          doc(db, 'users', currentUser.id),
-          {
-            balance: newBalance,
-            lastDepositAt: serverTimestamp(),
-            lastPaymentId: paymentId,
-            lastOrderId: orderId,
-            lastPaymentGateway: 'RAZORPAY',
-          },
-          { merge: true }
-        ).catch(() => {});
-
-        setDoc(
-          doc(db, 'transactions', txnId),
-          {
-            userId: currentUser.id,
-            amount: numAmount,
-            type: 'TOP_UP',
-            gateway: 'RAZORPAY',
-            paymentId,
-            orderId,
-            status: 'COMPLETED',
-            createdAt: serverTimestamp(),
-          },
-          { merge: true }
-        ).catch(() => {});
-      }
-    } catch {
-      // Safe offline/demo handling
-    }
-
-    return {
-      success: true,
-      message: `Deposit of ₹${numAmount.toLocaleString('en-IN')} credited to your wallet via Razorpay!`,
-      balanceAfter: newBalance,
-    };
-  };
 
   // Dedicated Withdrawal System (No Limits up to available balance)
   const submitWithdrawal = (amount: number, destination: string): { success: boolean; message: string } => {
@@ -1863,31 +1884,103 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  // Submit Deposit Request Demo
-  const submitDepositRequest = (amount: number, referenceNo: string, qrUrl: string): DepositRequest => {
+  // Submit Manual Deposit Request
+  const submitDepositRequest = (
+    dataOrAmount:
+      | number
+      | {
+          amount: number;
+          utr: string;
+          screenshotUrl: string;
+          playerId?: string;
+          paymentMethod?: PaymentMethodType;
+          screenshotName?: string;
+          screenshotSize?: string;
+        },
+    referenceNo?: string,
+    qrUrl?: string
+  ): DepositRequest => {
+    let amount = 0;
+    let utr = '';
+    let screenshotUrl = '';
+    let screenshotName = '';
+    let screenshotSize = '';
+    let playerId = '';
+    let paymentMethod: PaymentMethodType = 'gpay';
+
+    if (typeof dataOrAmount === 'object' && dataOrAmount !== null) {
+      amount = dataOrAmount.amount;
+      utr = dataOrAmount.utr;
+      screenshotUrl = dataOrAmount.screenshotUrl;
+      screenshotName = dataOrAmount.screenshotName || '';
+      screenshotSize = dataOrAmount.screenshotSize || '';
+      playerId = dataOrAmount.playerId || '';
+      paymentMethod = dataOrAmount.paymentMethod || 'gpay';
+    } else {
+      amount = Number(dataOrAmount);
+      utr = referenceNo || `REF-${Date.now().toString().slice(-6)}`;
+      screenshotUrl = '';
+    }
+
+    const assignedPlayerId =
+      playerId ||
+      currentUser?.id ||
+      currentUser?.gameAccountId ||
+      `BIT-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const selectedMethodConfig = paymentMethodConfigs[paymentMethod] || DEFAULT_PAYMENT_METHOD_CONFIGS[paymentMethod];
+
     const newReq: DepositRequest = {
-      id: `DEP-${Math.floor(10000 + Math.random() * 90000)}`,
-      userId: currentUser?.id || 'GUEST',
-      username: currentUser?.username || 'Guest Player',
+      id: `DEP-${Math.floor(100000 + Math.random() * 900000)}`,
+      userId: currentUser?.id || assignedPlayerId,
+      playerId: assignedPlayerId,
+      username: currentUser?.username || 'Player',
+      userEmail: currentUser?.email || '',
+      paymentMethod,
+      paymentMethodName: selectedMethodConfig.name,
       amount,
-      referenceNo: referenceNo || `REF-${Date.now().toString().slice(-6)}`,
-      qrUrl,
+      utr: utr || `REF-${Date.now().toString().slice(-6)}`,
+      referenceNo: utr,
+      screenshotUrl: screenshotUrl || '',
+      screenshotName: screenshotName || 'payment_proof.jpg',
+      screenshotSize: screenshotSize || 'Screenshot Attached',
+      qrUrl: qrUrl || selectedMethodConfig.qrImageUrl || ownerPaymentQr,
       status: 'PENDING',
-      createdAt: new Date().toLocaleString(),
+      createdAt: new Date().toLocaleString('en-IN'),
     };
 
     setDepositRequests(prev => [newReq, ...prev]);
     sounds.chipClick();
+
+    // Sync to backend /api/deposit/submit
+    fetch('/api/deposit/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: newReq.userId,
+        playerId: newReq.playerId,
+        username: newReq.username,
+        userEmail: newReq.userEmail,
+        paymentMethod: newReq.paymentMethod,
+        paymentMethodName: newReq.paymentMethodName,
+        amount: newReq.amount,
+        utr: newReq.utr,
+        screenshotUrl: newReq.screenshotUrl,
+        screenshotName: newReq.screenshotName,
+        screenshotSize: newReq.screenshotSize,
+      }),
+    }).catch(() => {});
+
     return newReq;
   };
 
-  // Admin Process Deposit Request
+  // Admin Process Deposit Request: Verifies UTR & Player ID and manually credits player account
   const adminProcessDepositRequest = (requestId: string, action: 'APPROVE' | 'REJECT', reason?: string) => {
     const req = depositRequests.find(r => r.id === requestId);
     if (!req) return;
 
     const adminId = currentUser?.id || 'ADM-BITORA-01';
-    const processedAt = new Date().toLocaleString();
+    const processedAt = new Date().toLocaleString('en-IN');
 
     setDepositRequests(prev =>
       prev.map(r => {
@@ -1896,7 +1989,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...r,
             status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED',
             processedAt,
-            rejectionReason: action === 'REJECT' ? (reason || 'Simulated verification declined') : undefined,
+            rejectionReason: action === 'REJECT' ? (reason || 'Declined during manual supervisor audit') : undefined,
+            adminNote: action === 'APPROVE' ? (reason || 'UTR verified against bank statement') : undefined,
             adminId,
           };
         }
@@ -1904,28 +1998,33 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })
     );
 
-    // If approved, credit user account directly (no cap)
+    // If approved, verify Player ID and credit user account directly
     if (action === 'APPROVE') {
-      const target = users.find(u => u.id === req.userId);
+      // Find target user by userId or playerId or gameAccountId
+      const target = users.find(
+        u => u.id === req.userId || u.id === req.playerId || u.gameAccountId === req.playerId
+      );
+
       if (target) {
         const addAmount = req.amount;
         const newBal = target.balance + addAmount;
 
         setUsers(prev => prev.map(u => (u.id === target.id ? { ...u, balance: newBal } : u)));
 
-        // Transaction
+        // Transaction record
         const txn: Transaction = {
           id: `TXN-${Date.now().toString().slice(-6)}`,
           userId: target.id,
-          type: 'DEMO_PAYMENT_REQUEST',
+          type: 'DEPOSIT',
           amount: addAmount,
           balanceAfter: newBal,
           status: 'COMPLETED',
           timestamp: processedAt,
-          note: `Approved Deposit Request (${req.id})`,
+          note: `Manual UPI Deposit Verified (UTR: ${req.utr || req.referenceNo || 'N/A'}) - Player ID: ${req.playerId}`,
           adminId,
         };
         setTransactions(prev => [txn, ...prev]);
+        sounds.cashOutWin();
       }
     }
 
@@ -1933,14 +2032,28 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const audit: AdminAuditLog = {
       id: `AUD-${Date.now().toString().slice(-6)}`,
       adminId,
-      targetUserId: req.userId,
+      targetUserId: req.userId || req.playerId,
       targetUsername: req.username,
       action: action === 'APPROVE' ? 'APPROVE_PAYMENT' : 'REJECT_PAYMENT',
       amount: req.amount,
-      reason: reason || `Payment request ${action.toLowerCase()}d by admin`,
+      reason: reason || (action === 'APPROVE' ? `Manual UPI deposit verified (UTR: ${req.utr})` : 'Deposit declined'),
       timestamp: processedAt,
     };
     setAuditLogs(prev => [audit, ...prev]);
+
+    // Sync to backend /api/deposit/review
+    fetch('/api/deposit/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestId: req.id,
+        action,
+        adminRole: 'admin',
+        adminId,
+        reason,
+      }),
+    }).catch(() => {});
+
     sounds.chipClick();
   };
 
@@ -2019,7 +2132,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         submitDepositRequest,
         adminProcessDepositRequest,
         ownerPaymentQr,
+        ownerUpiId,
+        ownerPayeeName,
         updateOwnerPaymentQr,
+        paymentMethodConfigs,
+        updateMethodPaymentQr,
         resetDemoData,
         hasClaimedFirstGameBonus,
         firstGameBonusNotification,
@@ -2032,9 +2149,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         dismissPhoneBonusNotification,
         hasClaimedPhoneBonus,
         loginWithFirebasePhone,
-        creditWalletFromRazorpay,
-        razorpaySuccessNotification,
-        dismissRazorpayNotification,
         // Daily Check-In System
         dailyCheckInState,
         claimDailyCheckIn,
