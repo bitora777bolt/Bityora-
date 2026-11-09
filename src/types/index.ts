@@ -39,6 +39,8 @@ export interface User {
   createdAt: string;
   totalWagered: number;
   totalWon: number;
+  authUid?: string;
+  isRealAuthUser?: boolean;
 }
 
 export type TransactionType =

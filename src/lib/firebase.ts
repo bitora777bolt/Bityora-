@@ -1,21 +1,43 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import {
+  getFirestore,
+  collection,
+  doc,
+  setDoc,
+  onSnapshot,
+  updateDoc,
+  increment,
+  serverTimestamp,
+  getDocFromServer,
+} from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics';
-import firebaseConfig from '../../firebase-applet-config.json';
 
-// Initialize Firebase with modular SDK v10+
+export const firebaseConfig = {
+  apiKey: "AIzaSyAGzk8aI3e-AKpNEDRbsKDPDO0eIg79aMw",
+  authDomain: "bityora.firebaseapp.com",
+  projectId: "bityora",
+  storageBucket: "bityora.firebasestorage.app",
+  messagingSenderId: "706352651228",
+  appId: "1:706352651228:web:ff5bc93269ed3c98a4cd19",
+  measurementId: "G-GCE4DKNQ13"
+};
+
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// Initialize Firestore targeting default database
-export const db = 
-  (firebaseConfig as any).firestoreDatabaseId && 
-  (firebaseConfig as any).firestoreDatabaseId !== '(default)'
-    ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
-    : getFirestore(app);
+export {
+  collection,
+  doc,
+  setDoc,
+  onSnapshot,
+  updateDoc,
+  increment,
+  serverTimestamp,
+};
 
 // Initialize Analytics safely
 export let analytics: Analytics | null = null;

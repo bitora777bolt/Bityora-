@@ -2,13 +2,27 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "User profile with phone number and credentials",
+      "description": "User profile with connected game account, role, balance, and status",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
+        "id": { "type": "string" },
+        "gameAccountId": { "type": "string" },
         "email": { "type": "string", "format": "email" },
+        "username": { "type": "string" },
         "displayName": { "type": "string" },
-        "createdAt": { "type": "string" }
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["player", "admin"] },
+        "balance": { "type": "number" },
+        "accountStatus": { "type": "string", "enum": ["ACTIVE", "SUSPENDED", "FROZEN", "BLOCKED"] },
+        "riskLevel": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "violationCount": { "type": "number" },
+        "illicitActivityFlags": { "type": "array", "items": { "type": "string" } },
+        "gameSessionStatus": { "type": "string" },
+        "vipTier": { "type": "string" },
+        "avatar": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "lastSignIn": { "type": "string" }
       },
       "required": ["uid", "email"]
     },

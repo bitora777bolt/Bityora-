@@ -20,9 +20,18 @@ import {
   UserRole,
 } from '../types';
 import { sounds } from '../utils/soundEffects';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  db,
+  auth,
+  collection,
+  doc,
+  setDoc,
+  onSnapshot,
+  updateDoc,
+  increment,
+  serverTimestamp,
+} from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { db, auth } from '../lib/firebase';
 import {
   getDailyCheckInState,
   claimDailyCheckInReward,
@@ -145,6 +154,9 @@ interface GameContextType {
   openDailySpin: () => void;
   dailySpinState: DailySpinState | null;
   creditDailySpinReward: (amount: number, isJackpot: boolean) => void;
+  // Live Firestore Sync Status
+  isFirestoreLive: boolean;
+  refreshFirestoreUsers: () => Promise<void>;
 }
 
 const MAX_BALANCE = Infinity; // No limits! Unlimited balance growth
