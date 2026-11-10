@@ -508,8 +508,8 @@ function AppContent() {
 
 export default function App() {
   return (
-    <GameProvider>
+   <HashRouter> <GameProvider>
       <AppContent />
-    </GameProvider>
+    </GameProvider> </HashRouter>
   );
 }
