@@ -42,6 +42,9 @@ import { DEFAULT_PAYMENT_METHOD_CONFIGS } from '../utils/upiDeposit';
 import {
   updateFirestoreUserBalance,
   subscribeToUsersCollection,
+  subscribeToUserBalance,
+  subscribeToPaymentQrConfig,
+  updateFirestorePaymentQrConfig,
   BalanceUpdateMode,
 } from '../utils/firestoreAdminBalance';
 
@@ -600,7 +603,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   });
 
-  // Sync with server deposit config on mount
+  // Sync with server deposit config and Firestore settings/payment_config on mount
   useEffect(() => {
     fetch('/api/deposit/config')
       .then(res => res.json())
@@ -617,6 +620,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       })
       .catch(() => {});
+
+    // Real-time Firestore listener for admin QR code & UPI ID updates
+    const unsubscribeQr = subscribeToPaymentQrConfig(configData => {
+      if (configData.methods) {
+        setPaymentMethodConfigs(prev => {
+          const merged = { ...prev, ...configData.methods };
+          try {
+            localStorage.setItem('bitora_payment_methods_config', JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
+      }
+      if (configData.qrImageUrl) setOwnerPaymentQrState(configData.qrImageUrl);
+      if (configData.upiId) setOwnerUpiId(configData.upiId);
+      if (configData.payeeName) setOwnerPayeeName(configData.payeeName);
+    });
+
+    return () => unsubscribeQr();
   }, []);
 
   const updateMethodPaymentQr = (
@@ -632,6 +653,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return false;
     }
 
+    let nextSnapshot: Record<PaymentMethodType, PaymentMethodConfig> | null = null;
+
     setPaymentMethodConfigs(prev => {
       const target = prev[method] || DEFAULT_PAYMENT_METHOD_CONFIGS[method];
       const updated: PaymentMethodConfig = {
@@ -644,6 +667,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedBy: currentUser?.id || 'ADM-JATIN-01',
       };
       const next = { ...prev, [method]: updated };
+      nextSnapshot = next;
       try {
         localStorage.setItem('bitora_payment_methods_config', JSON.stringify(next));
       } catch {}
@@ -661,6 +685,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (payeeName) localStorage.setItem('bitora_owner_payee_name', payeeName);
       } catch {}
     }
+
+    // Persist to Cloud Firestore `settings/payment_config` (Admin-only security rule)
+    updateFirestorePaymentQrConfig(currentUser, {
+      ...(nextSnapshot ? { methods: nextSnapshot } : {}),
+      ...(method === 'gpay'
+        ? {
+            qrImageUrl: photoUrl || ownerPaymentQr,
+            upiId: upiId !== undefined ? upiId : ownerUpiId,
+            payeeName: payeeName !== undefined ? payeeName : ownerPayeeName,
+          }
+        : {}),
+    }).catch(() => {});
 
     // Sync to backend /api/deposit/config
     fetch('/api/deposit/config', {
@@ -886,6 +922,27 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: isHardcodedAdminEmail(rawCurrentUser.email) ? 'admin' : rawCurrentUser.role,
       }
     : null;
+
+  // Dedicated real-time `onSnapshot` listener for the active user's `balance` field in Cloud Firestore
+  const activeUserDocId = currentUser?.authUid || currentUser?.id || '';
+  useEffect(() => {
+    if (!activeUserDocId) return;
+
+    const unsubscribeBalance = subscribeToUserBalance(activeUserDocId, newBalance => {
+      setUsers(prev =>
+        prev.map(u => {
+          if (u.id === currentUserId || u.authUid === activeUserDocId || u.id === activeUserDocId) {
+            if (u.balance !== newBalance) {
+              return { ...u, balance: newBalance };
+            }
+          }
+          return u;
+        })
+      );
+    });
+
+    return () => unsubscribeBalance();
+  }, [activeUserDocId, currentUserId]);
 
   const loginAs = (userId: string) => {
     const user = users.find(u => u.id === userId);

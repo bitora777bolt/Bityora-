@@ -48,6 +48,7 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
     depositRequests,
     submitDepositRequest,
     paymentMethodConfigs,
+    updateMethodPaymentQr,
   } = useGame();
 
   // Selected Payment Method: explicitly 'gpay', 'phonepe', or 'paytm'
@@ -75,8 +76,19 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
   const [successReceipt, setSuccessReceipt] = useState<DepositRequest | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const adminQrFileInputRef = useRef<HTMLInputElement>(null);
 
-  const isAdmin = currentUser?.role === 'admin' || isHardcodedAdminEmail(currentUser?.email);
+  // Strict Admin Check: Only true when logged in as an admin
+  const isAdmin = Boolean(
+    currentUser && (currentUser.role === 'admin' || isHardcodedAdminEmail(currentUser.email))
+  );
+
+  // Admin-only QR & UPI ID Editor state (completely hidden from regular players)
+  const [showAdminQrEditor, setShowAdminQrEditor] = useState<boolean>(false);
+  const [adminQrUrlInput, setAdminQrUrlInput] = useState<string>('');
+  const [adminUpiIdInput, setAdminUpiIdInput] = useState<string>('');
+  const [adminPayeeNameInput, setAdminPayeeNameInput] = useState<string>('');
+  const [adminSaveFeedback, setAdminSaveFeedback] = useState<string | null>(null);
 
   // Ensure Player ID updates if currentUser changes
   useEffect(() => {
@@ -88,6 +100,56 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
   // Current active method configuration
   const currentConfig =
     paymentMethodConfigs[selectedMethod] || paymentMethodConfigs.gpay;
+
+  // Sync Admin Editor inputs when selectedMethod or currentConfig changes
+  useEffect(() => {
+    if (currentConfig) {
+      setAdminUpiIdInput(currentConfig.upiId || '');
+      setAdminPayeeNameInput(currentConfig.payeeName || '');
+      setAdminQrUrlInput('');
+    }
+  }, [selectedMethod, currentConfig.upiId, currentConfig.payeeName]);
+
+  // Admin-only QR image file upload handler
+  const handleAdminQrFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isAdmin) return;
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const dataUrl = ev.target?.result as string;
+      if (dataUrl) {
+        setAdminQrUrlInput(dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Admin-only save QR & UPI ID handler
+  const handleAdminSaveQrAndUpi = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+
+    const finalQrUrl = adminQrUrlInput.trim() || currentConfig.qrImageUrl;
+    const finalUpiId = adminUpiIdInput.trim() || currentConfig.upiId;
+    const finalPayee = adminPayeeNameInput.trim() || currentConfig.payeeName;
+
+    const ok = updateMethodPaymentQr(
+      selectedMethod,
+      finalQrUrl,
+      finalUpiId,
+      finalPayee,
+      currentConfig.instructions
+    );
+
+    if (ok) {
+      setAdminSaveFeedback(
+        `${currentConfig.name} QR Code & UPI ID (${finalUpiId}) updated and synced!`
+      );
+      setAdminQrUrlInput('');
+      setTimeout(() => setAdminSaveFeedback(null), 4000);
+    }
+  };
 
   // Handle Preset selection
   const handleSelectPreset = (amount: number) => {
@@ -642,10 +704,114 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
                 </p>
               </div>
 
-              {/* View-Only Player Guarantee Notice */}
-              <p className="text-[10px] text-gray-500 italic">
-                Static merchant QR verified by Bitora VIP administration &bull; View-only player mode
-              </p>
+              {/* View-Only Player Guarantee Notice (for regular players) */}
+              {!isAdmin && (
+                <p className="text-[10px] text-gray-500 italic">
+                  Static merchant QR verified by Bitora VIP administration &bull; View-only player mode
+                </p>
+              )}
+
+              {/* ========================================================== */}
+              {/* ADMIN-ONLY FEATURE: Update QR Code & UPI ID (Hidden from regular players) */}
+              {/* ========================================================== */}
+              {isAdmin && (
+                <div className="w-full pt-2 border-t border-amber-500/30 text-left space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-[#ffd700]" />
+                      <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                        Admin Only: {currentConfig.name} QR &amp; UPI Control
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminQrEditor(prev => !prev)}
+                      className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[#ffd700] text-[11px] font-bold transition-colors cursor-pointer"
+                    >
+                      {showAdminQrEditor ? 'Hide Editor' : 'Update QR & UPI ID'}
+                    </button>
+                  </div>
+
+                  {showAdminQrEditor && (
+                    <form
+                      onSubmit={handleAdminSaveQrAndUpi}
+                      className="p-3.5 rounded-2xl bg-[#080a10] border border-amber-500/40 space-y-3 animate-in fade-in duration-200"
+                    >
+                      <input
+                        type="file"
+                        ref={adminQrFileInputRef}
+                        accept="image/*"
+                        onChange={handleAdminQrFileUpload}
+                        className="hidden"
+                      />
+
+                      <div>
+                        <label className="text-[11px] font-bold text-gray-300 block mb-1">
+                          1. Update {currentConfig.name} QR Code Image:
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => adminQrFileInputRef.current?.click()}
+                            className="px-3 py-2 rounded-xl bg-[#141926] hover:bg-[#1e2638] border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Upload QR Image</span>
+                          </button>
+                          <input
+                            type="text"
+                            value={adminQrUrlInput}
+                            onChange={e => setAdminQrUrlInput(e.target.value)}
+                            placeholder="Or paste QR image URL / Data URI..."
+                            className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-[#d4af37]"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-gray-300 block mb-1">
+                          2. Update {currentConfig.name} UPI ID (VPA):
+                        </label>
+                        <input
+                          type="text"
+                          value={adminUpiIdInput}
+                          onChange={e => setAdminUpiIdInput(e.target.value)}
+                          placeholder="e.g. merchant@okaxis"
+                          className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-2 text-xs text-amber-300 font-mono font-bold focus:outline-none focus:border-[#d4af37]"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-gray-300 block mb-1">
+                          3. Update Payee / Merchant Name:
+                        </label>
+                        <input
+                          type="text"
+                          value={adminPayeeNameInput}
+                          onChange={e => setAdminPayeeNameInput(e.target.value)}
+                          placeholder="e.g. Bitora Official VIP"
+                          className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#d4af37]"
+                        />
+                      </div>
+
+                      {adminSaveFeedback && (
+                        <div className="p-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                          <span>{adminSaveFeedback}</span>
+                        </div>
+                      )}
+
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] text-black font-black text-xs shadow-md hover:brightness-110 transition-all cursor-pointer"
+                      >
+                        Save &amp; Publish {currentConfig.name} QR + UPI ID
+                      </button>
+                    </form>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

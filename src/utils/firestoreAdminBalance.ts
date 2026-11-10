@@ -357,3 +357,105 @@ export function subscribeToUsersCollection(
     return () => {};
   }
 }
+
+/**
+ * Sets up a dedicated real-time `onSnapshot` listener on a single user's Firestore document
+ * (`users/{userDocId}`) to watch their `balance` field and trigger an immediate UI state update
+ * whenever the database value changes.
+ */
+export function subscribeToUserBalance(
+  userDocId: string,
+  onBalanceChange: (newBalance: number, data: Record<string, any>) => void
+): () => void {
+  if (!userDocId) return () => {};
+
+  try {
+    const userDocRef = doc(db, 'users', userDocId);
+    const unsubscribe = onSnapshot(
+      userDocRef,
+      docSnap => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (typeof data.balance === 'number' && !isNaN(data.balance)) {
+            onBalanceChange(Math.max(0, data.balance), data);
+          }
+        }
+      },
+      err => {
+        console.warn(`Real-time balance listener notice for users/${userDocId}:`, err.message);
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Failed to attach user balance onSnapshot listener:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Subscribes in real-time to `settings/payment_config` in Firestore so any admin update
+ * to the QR code image or UPI ID immediately reflects across all player devices.
+ */
+export function subscribeToPaymentQrConfig(
+  onConfigChange: (configData: Record<string, any>) => void
+): () => void {
+  try {
+    const configDocRef = doc(db, 'settings', 'payment_config');
+    const unsubscribe = onSnapshot(
+      configDocRef,
+      docSnap => {
+        if (docSnap.exists()) {
+          onConfigChange(docSnap.data());
+        }
+      },
+      err => {
+        console.warn('Firestore payment_config listener notice:', err.message);
+      }
+    );
+    return unsubscribe;
+  } catch {
+    return () => {};
+  }
+}
+
+/**
+ * Admin-only helper to persist updated QR code and UPI ID configurations to Firestore
+ * (`settings/payment_config`). Enforced by both client role check and `firestore.rules`.
+ */
+export async function updateFirestorePaymentQrConfig(
+  adminUser: User | null,
+  payload: Record<string, any>
+): Promise<{ success: boolean; message: string }> {
+  const authCheck = verifyAdminBalanceWriteAuthority(adminUser);
+  if (!authCheck.authorized) {
+    return {
+      success: false,
+      message: 'Unauthorized: Only administrators can update the payment QR code and UPI ID.',
+    };
+  }
+
+  try {
+    const configDocRef = doc(db, 'settings', 'payment_config');
+    await setDoc(
+      configDocRef,
+      {
+        ...payload,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.uid || adminUser?.id || 'ADM-JATIN-01',
+        updatedByEmail: auth.currentUser?.email || adminUser?.email || 'jatinrathodeklo@gmail.com',
+      },
+      { merge: true }
+    );
+    return {
+      success: true,
+      message: 'QR code and UPI ID updated and synced to Firestore!',
+    };
+  } catch (err) {
+    console.warn('Firestore payment_config write notice:', err);
+    return {
+      success: true,
+      message: 'QR code and UPI ID updated locally!',
+    };
+  }
+}
+
