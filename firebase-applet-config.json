@@ -1,10 +1,12 @@
 {
+  "projectId": "bityora",
+  "appId": "1:706352651228:web:ff5bc93269ed3c98a4cd19",
   "apiKey": "AIzaSyAGzk8aI3e-AKpNEDRbsKDPDO0eIg79aMw",
   "authDomain": "bityora.firebaseapp.com",
-  "projectId": "bityora",
+  "firestoreDatabaseId": "ai-studio-bitoragamingsuit-cde12368-3d1d-4042-b2d3-12f91544b816",
   "storageBucket": "bityora.firebasestorage.app",
   "messagingSenderId": "706352651228",
-  "appId": "1:706352651228:web:ff5bc93269ed3c98a4cd19",
   "measurementId": "G-GCE4DKNQ13",
-  "firestoreDatabaseId": "(default)"
+  "oAuthClientId": "706352651228-4sj42bc4m4ckstl0q0jjm80t2f37c0di.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }
