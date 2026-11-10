@@ -635,19 +635,28 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Real-time Firestore listener for admin QR code & UPI ID updates
     const unsubscribeQr = subscribeToPaymentQrConfig(configData => {
-      setIsQrSyncedFromFirebase(true);
+      setIsQrSyncedFromFirebase(prev => (prev ? prev : true));
       if (configData.methods) {
         setPaymentMethodConfigs(prev => {
           const merged = { ...prev, ...configData.methods };
+          const prevStr = JSON.stringify(prev);
+          const nextStr = JSON.stringify(merged);
+          if (prevStr === nextStr) return prev;
           try {
-            localStorage.setItem('bitora_payment_methods_config', JSON.stringify(merged));
+            localStorage.setItem('bitora_payment_methods_config', nextStr);
           } catch {}
           return merged;
         });
       }
-      if (configData.qrImageUrl) setOwnerPaymentQrState(configData.qrImageUrl);
-      if (configData.upiId) setOwnerUpiId(configData.upiId);
-      if (configData.payeeName) setOwnerPayeeName(configData.payeeName);
+      if (configData.qrImageUrl) {
+        setOwnerPaymentQrState(prev => (prev === configData.qrImageUrl ? prev : configData.qrImageUrl));
+      }
+      if (configData.upiId) {
+        setOwnerUpiId(prev => (prev === configData.upiId ? prev : configData.upiId));
+      }
+      if (configData.payeeName) {
+        setOwnerPayeeName(prev => (prev === configData.payeeName ? prev : configData.payeeName));
+      }
     });
 
     return () => unsubscribeQr();
@@ -867,6 +876,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUsers(prev => {
       const updatedMap = new Map<string, User>();
       prev.forEach(u => updatedMap.set(u.id, u));
+      let hasChanges = false;
 
       firestoreUsers.forEach(fsUser => {
         // Find matching user by authUid, id, or email
@@ -886,26 +896,41 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (existingKey) {
           const existing = updatedMap.get(existingKey)!;
-          updatedMap.set(existingKey, {
-            ...existing,
-            ...fsUser,
-            id: existing.id, // Preserve stable ID reference
-            authUid: fsUser.authUid || existing.authUid,
-            isRealAuthUser: true,
-            role: isHardcodedAdminEmail(fsUser.email || existing.email)
-              ? 'admin'
-              : fsUser.role || existing.role,
-            balance:
-              typeof fsUser.balance === 'number' && !isNaN(fsUser.balance)
-                ? fsUser.balance
-                : existing.balance,
-          });
+          const nextRole = isHardcodedAdminEmail(fsUser.email || existing.email)
+            ? 'admin'
+            : fsUser.role || existing.role;
+          const nextBalance =
+            typeof fsUser.balance === 'number' && !isNaN(fsUser.balance)
+              ? fsUser.balance
+              : existing.balance;
+          const nextAuthUid = fsUser.authUid || existing.authUid;
+          const nextStatus = fsUser.accountStatus || existing.accountStatus;
+
+          if (
+            existing.balance !== nextBalance ||
+            existing.role !== nextRole ||
+            existing.authUid !== nextAuthUid ||
+            existing.isRealAuthUser !== true ||
+            existing.accountStatus !== nextStatus
+          ) {
+            hasChanges = true;
+            updatedMap.set(existingKey, {
+              ...existing,
+              ...fsUser,
+              id: existing.id, // Preserve stable ID reference
+              authUid: nextAuthUid,
+              isRealAuthUser: true,
+              role: nextRole,
+              balance: nextBalance,
+            });
+          }
         } else {
+          hasChanges = true;
           updatedMap.set(fsUser.id, fsUser);
         }
       });
 
-      return Array.from(updatedMap.values());
+      return hasChanges ? Array.from(updatedMap.values()) : prev;
     });
   }, []);
 
@@ -1296,12 +1321,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { isNewBonus, bonusAmount, user: activeUser };
   };
 
+  const loginWithGoogleGlobalRef = React.useRef(loginWithFirebaseGoogle);
+  loginWithGoogleGlobalRef.current = loginWithFirebaseGoogle;
+  const lastGlobalAuthUidRef = React.useRef<string | null>(null);
+
   // Global Firebase Auth State Listener to ensure 100 credit welcome bonus trigger
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
+      if (firebaseUser && lastGlobalAuthUidRef.current !== firebaseUser.uid) {
+        lastGlobalAuthUidRef.current = firebaseUser.uid;
         try {
-          await loginWithFirebaseGoogle({
+          await loginWithGoogleGlobalRef.current({
             uid: firebaseUser.uid,
             email: firebaseUser.email,
             displayName: firebaseUser.displayName,
@@ -1310,6 +1340,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (e) {
           console.warn('Firebase auth state listener sync note:', e);
         }
+      } else if (!firebaseUser) {
+        lastGlobalAuthUidRef.current = null;
       }
     });
 

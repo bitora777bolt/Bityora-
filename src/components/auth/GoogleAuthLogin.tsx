@@ -39,14 +39,24 @@ export const GoogleAuthLogin: React.FC<GoogleAuthLoginProps> = ({
   const [fallbackName, setFallbackName] = useState<string>('Jatin Rathod');
 
   const { loginWithFirebaseGoogle, currentUser } = useGame();
+  const loginWithGoogleRef = React.useRef(loginWithFirebaseGoogle);
+  loginWithGoogleRef.current = loginWithFirebaseGoogle;
+  const lastSyncedUidRef = React.useRef<string | null>(null);
 
-  // Monitor Firebase Auth session state
+  // Monitor Firebase Auth session state once on mount without re-subscribing on context re-renders
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (activeUser) => {
-      setFirebaseUser(activeUser);
-      if (activeUser) {
+      setFirebaseUser(prev => {
+        if ((prev?.uid || null) === (activeUser?.uid || null)) {
+          return prev;
+        }
+        return activeUser;
+      });
+
+      if (activeUser && lastSyncedUidRef.current !== activeUser.uid) {
+        lastSyncedUidRef.current = activeUser.uid;
         try {
-          await loginWithFirebaseGoogle({
+          await loginWithGoogleRef.current({
             uid: activeUser.uid,
             email: activeUser.email,
             displayName: activeUser.displayName,
@@ -55,11 +65,13 @@ export const GoogleAuthLogin: React.FC<GoogleAuthLoginProps> = ({
         } catch (e) {
           console.warn('Game context user sync note:', e);
         }
+      } else if (!activeUser) {
+        lastSyncedUidRef.current = null;
       }
     });
 
     return () => unsubscribe();
-  }, [loginWithFirebaseGoogle]);
+  }, []);
 
   // Direct / Fallback Google Session Sign-In (used when popup domain is restricted or blocked)
   const completeDirectGoogleSignIn = async (emailInput: string, nameInput: string) => {
