@@ -65,6 +65,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
     updateOwnerPaymentQr,
     paymentMethodConfigs,
     updateMethodPaymentQr,
+    uploadMethodQrToFirebase,
   } = useGame();
 
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -110,6 +111,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
     paymentMethodConfigs?.gpay?.instructions || ''
   );
   const [scannerSuccessMsg, setScannerSuccessMsg] = useState<string | null>(null);
+  const [isUploadingAdminQr, setIsUploadingAdminQr] = useState<boolean>(false);
   const qrFileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Synchronize inputs whenever administrator changes selected payment method
@@ -1564,11 +1566,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                   className="w-48 h-48 object-contain rounded-lg"
                 />
                 <span className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 bg-[#080a10] border border-[#d4af37] text-[#ffd700] font-black text-[9px] px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                  {selectedAdminMethod.toUpperCase()} STATIC QR
+                  {selectedAdminMethod.toUpperCase()} LIVE FIREBASE QR
                 </span>
               </div>
 
-              <div className="w-full space-y-1.5 text-left bg-[#080a10] p-3 rounded-xl border border-[#242c3d] mt-2">
+              {/* Change QR Code button in Admin Panel directly below QR preview and above UPI ID */}
+              <div className="w-full pt-1">
+                <button
+                  type="button"
+                  disabled={isUploadingAdminQr}
+                  onClick={() => qrFileInputRef.current?.click()}
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:brightness-110 disabled:opacity-60 text-black font-black text-xs shadow-[0_0_15px_rgba(212,175,55,0.35)] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5 text-black" />
+                  <span>{isUploadingAdminQr ? 'Uploading to Firebase...' : 'Change QR Code'}</span>
+                </button>
+              </div>
+
+              <div className="w-full space-y-1.5 text-left bg-[#080a10] p-3 rounded-xl border border-[#242c3d] mt-1">
                 <div className="flex justify-between text-xs">
                   <span className="text-gray-400">Method Name:</span>
                   <span className="font-bold text-white">
@@ -1591,42 +1606,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
               {/* File upload for selected method's QR image */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-white block">
-                  1. Upload New QR Image for {paymentMethodConfigs[selectedAdminMethod]?.name} from Device:
+                  1. Upload New QR Image for {paymentMethodConfigs[selectedAdminMethod]?.name} to Firebase:
                 </label>
                 <input
                   type="file"
                   ref={qrFileInputRef}
                   accept="image/*"
-                  onChange={e => {
+                  onChange={async e => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      const reader = new FileReader();
-                      reader.onload = ev => {
-                        const dataUrl = ev.target?.result as string;
-                        updateMethodPaymentQr(
-                          selectedAdminMethod,
-                          dataUrl,
-                          adminUpiIdInput,
-                          adminPayeeNameInput,
-                          adminInstructionsInput
-                        );
+                      setIsUploadingAdminQr(true);
+                      setScannerSuccessMsg(null);
+                      try {
+                        const result = await uploadMethodQrToFirebase({
+                          method: selectedAdminMethod,
+                          file,
+                          upiId: adminUpiIdInput,
+                          payeeName: adminPayeeNameInput,
+                          instructions: adminInstructionsInput,
+                        });
                         setScannerSuccessMsg(
-                          `QR image for ${paymentMethodConfigs[selectedAdminMethod]?.name} updated directly from uploaded file!`
+                          result.message ||
+                            `QR image for ${paymentMethodConfigs[selectedAdminMethod]?.name} uploaded to Firebase & synced globally!`
                         );
-                        setTimeout(() => setScannerSuccessMsg(null), 4000);
-                      };
-                      reader.readAsDataURL(file);
+                      } catch {
+                        setScannerSuccessMsg('Error uploading QR image to Firebase.');
+                      } finally {
+                        setIsUploadingAdminQr(false);
+                        if (e.target) e.target.value = '';
+                        setTimeout(() => setScannerSuccessMsg(null), 4500);
+                      }
                     }
                   }}
                   className="hidden"
                 />
                 <button
                   type="button"
+                  disabled={isUploadingAdminQr}
                   onClick={() => qrFileInputRef.current?.click()}
-                  className="w-full py-3 rounded-xl bg-[#161c2b] hover:bg-[#1e2538] border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  className="w-full py-3 rounded-xl bg-[#161c2b] hover:bg-[#1e2538] disabled:opacity-60 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
                 >
                   <Upload className="w-4 h-4 text-amber-400" />
-                  <span>Choose Image File (PNG, JPG, WEBP) for {paymentMethodConfigs[selectedAdminMethod]?.name}...</span>
+                  <span>
+                    {isUploadingAdminQr
+                      ? `Uploading ${paymentMethodConfigs[selectedAdminMethod]?.name} QR to Firebase...`
+                      : `Change QR Code — Upload Image File (PNG, JPG, WEBP) for ${paymentMethodConfigs[selectedAdminMethod]?.name}`}
+                  </span>
                 </button>
               </div>
 
@@ -1645,23 +1670,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                   />
                   <button
                     type="button"
-                    onClick={() => {
+                    disabled={isUploadingAdminQr}
+                    onClick={async () => {
                       if (newQrInputUrl.trim()) {
-                        updateMethodPaymentQr(
-                          selectedAdminMethod,
-                          newQrInputUrl.trim(),
-                          adminUpiIdInput,
-                          adminPayeeNameInput,
-                          adminInstructionsInput
-                        );
-                        setScannerSuccessMsg(
-                          `QR code URL for ${paymentMethodConfigs[selectedAdminMethod]?.name} applied successfully!`
-                        );
-                        setTimeout(() => setScannerSuccessMsg(null), 3000);
-                        setNewQrInputUrl('');
+                        setIsUploadingAdminQr(true);
+                        try {
+                          const result = await uploadMethodQrToFirebase({
+                            method: selectedAdminMethod,
+                            directImageUrl: newQrInputUrl.trim(),
+                            upiId: adminUpiIdInput,
+                            payeeName: adminPayeeNameInput,
+                            instructions: adminInstructionsInput,
+                          });
+                          setScannerSuccessMsg(
+                            result.message ||
+                              `QR code URL for ${paymentMethodConfigs[selectedAdminMethod]?.name} synced to Firebase!`
+                          );
+                          setNewQrInputUrl('');
+                        } finally {
+                          setIsUploadingAdminQr(false);
+                          setTimeout(() => setScannerSuccessMsg(null), 4000);
+                        }
                       }
                     }}
-                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors cursor-pointer shrink-0"
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-black text-xs font-bold transition-colors cursor-pointer shrink-0"
                   >
                     Apply URL
                   </button>

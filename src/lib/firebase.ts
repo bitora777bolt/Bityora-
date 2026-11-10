@@ -3,6 +3,7 @@ import {
   getFirestore,
   collection,
   doc,
+  getDoc,
   setDoc,
   onSnapshot,
   updateDoc,
@@ -11,6 +12,13 @@ import {
   getDocFromServer,
 } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import {
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+  uploadString,
+  getDownloadURL,
+} from 'firebase/storage';
 import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics';
 
 export const firebaseConfig = {
@@ -23,20 +31,30 @@ export const firebaseConfig = {
   measurementId: "G-GCE4DKNQ13"
 };
 
+export const PROVISIONED_FIRESTORE_DB_ID =
+  'ai-studio-bitoragamingsuit-cde12368-3d1d-4042-b2d3-12f91544b816';
+
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app);
+export const provisionedDb = getFirestore(app, PROVISIONED_FIRESTORE_DB_ID);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export {
   collection,
   doc,
+  getDoc,
   setDoc,
   onSnapshot,
   updateDoc,
   increment,
   serverTimestamp,
+  storageRef,
+  uploadBytes,
+  uploadString,
+  getDownloadURL,
 };
 
 // Initialize Analytics safely

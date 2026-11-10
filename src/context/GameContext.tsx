@@ -45,6 +45,7 @@ import {
   subscribeToUserBalance,
   subscribeToPaymentQrConfig,
   updateFirestorePaymentQrConfig,
+  uploadQrCodeToFirebaseAndUpdateDb,
   BalanceUpdateMode,
 } from '../utils/firestoreAdminBalance';
 
@@ -122,8 +123,17 @@ interface GameContextType {
     qrUrl?: string
   ) => DepositRequest;
   adminProcessDepositRequest: (requestId: string, action: 'APPROVE' | 'REJECT', reason?: string) => void;
-  // Multi-Method Deposit QR Configs (Google Pay, PhonePe, Paytm)
+  // Multi-Method Deposit QR Configs (Google Pay, PhonePe, Paytm) - Dynamically fetched & synced via Firebase
   paymentMethodConfigs: Record<PaymentMethodType, PaymentMethodConfig>;
+  isQrSyncedFromFirebase: boolean;
+  uploadMethodQrToFirebase: (params: {
+    method: PaymentMethodType;
+    file?: File;
+    directImageUrl?: string;
+    upiId?: string;
+    payeeName?: string;
+    instructions?: string;
+  }) => Promise<{ success: boolean; qrImageUrl: string; message: string }>;
   updateMethodPaymentQr: (
     method: PaymentMethodType,
     photoUrl: string,
@@ -603,6 +613,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   });
 
+  const [isQrSyncedFromFirebase, setIsQrSyncedFromFirebase] = useState<boolean>(false);
+
   // Sync with server deposit config and Firestore settings/payment_config on mount
   useEffect(() => {
     fetch('/api/deposit/config')
@@ -623,6 +635,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Real-time Firestore listener for admin QR code & UPI ID updates
     const unsubscribeQr = subscribeToPaymentQrConfig(configData => {
+      setIsQrSyncedFromFirebase(true);
       if (configData.methods) {
         setPaymentMethodConfigs(prev => {
           const merged = { ...prev, ...configData.methods };
@@ -719,6 +732,44 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateOwnerPaymentQr = (photoUrl: string, upiId?: string, payeeName?: string): boolean => {
     return updateMethodPaymentQr('gpay', photoUrl, upiId, payeeName);
+  };
+
+  /**
+   * Uploads a new QR code image file or URL to Firebase Storage / Firestore
+   * and updates the global database URL so all connected users see the new QR code immediately.
+   */
+  const uploadMethodQrToFirebase = async (params: {
+    method: PaymentMethodType;
+    file?: File;
+    directImageUrl?: string;
+    upiId?: string;
+    payeeName?: string;
+    instructions?: string;
+  }): Promise<{ success: boolean; qrImageUrl: string; message: string }> => {
+    const result = await uploadQrCodeToFirebaseAndUpdateDb({
+      adminUser: currentUser,
+      method: params.method,
+      file: params.file,
+      directImageUrl: params.directImageUrl,
+      upiId: params.upiId,
+      payeeName: params.payeeName,
+      instructions: params.instructions,
+      currentConfigs: paymentMethodConfigs,
+    });
+
+    if (result.success && result.qrImageUrl) {
+      setIsQrSyncedFromFirebase(true);
+      updateMethodPaymentQr(
+        params.method,
+        result.qrImageUrl,
+        params.upiId,
+        params.payeeName,
+        params.instructions
+      );
+      sounds.cashOutWin();
+    }
+
+    return result;
   };
 
   // 10-Minute Deposit Clearance System
@@ -2489,7 +2540,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ownerPayeeName,
         updateOwnerPaymentQr,
         paymentMethodConfigs,
+        isQrSyncedFromFirebase,
         updateMethodPaymentQr,
+        uploadMethodQrToFirebase,
         resetDemoData,
         hasClaimedFirstGameBonus,
         firstGameBonusNotification,

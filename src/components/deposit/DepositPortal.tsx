@@ -48,7 +48,9 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
     depositRequests,
     submitDepositRequest,
     paymentMethodConfigs,
+    isQrSyncedFromFirebase,
     updateMethodPaymentQr,
+    uploadMethodQrToFirebase,
   } = useGame();
 
   // Selected Payment Method: explicitly 'gpay', 'phonepe', or 'paytm'
@@ -89,6 +91,7 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
   const [adminUpiIdInput, setAdminUpiIdInput] = useState<string>('');
   const [adminPayeeNameInput, setAdminPayeeNameInput] = useState<string>('');
   const [adminSaveFeedback, setAdminSaveFeedback] = useState<string | null>(null);
+  const [isUploadingQr, setIsUploadingQr] = useState<boolean>(false);
 
   // Ensure Player ID updates if currentUser changes
   useEffect(() => {
@@ -110,34 +113,41 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
     }
   }, [selectedMethod, currentConfig.upiId, currentConfig.payeeName]);
 
-  // Admin-only QR image file upload handler (immediately updates the active method QR code)
-  const handleAdminQrFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Admin-only QR image file upload handler: uploads to Firebase Storage/Firestore and updates global URL for all users
+  const handleAdminQrFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isAdmin) return;
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const dataUrl = ev.target?.result as string;
-      if (dataUrl) {
-        setAdminQrUrlInput(dataUrl);
-        const ok = updateMethodPaymentQr(
-          selectedMethod,
-          dataUrl,
-          adminUpiIdInput.trim() || currentConfig.upiId,
-          adminPayeeNameInput.trim() || currentConfig.payeeName,
-          currentConfig.instructions
-        );
-        if (ok) {
-          setAdminSaveFeedback(`${currentConfig.name} QR Code updated!`);
-          setTimeout(() => setAdminSaveFeedback(null), 4000);
-        }
+
+    setIsUploadingQr(true);
+    setAdminSaveFeedback(null);
+
+    try {
+      const result = await uploadMethodQrToFirebase({
+        method: selectedMethod,
+        file,
+        upiId: adminUpiIdInput.trim() || currentConfig.upiId,
+        payeeName: adminPayeeNameInput.trim() || currentConfig.payeeName,
+        instructions: currentConfig.instructions,
+      });
+
+      if (result.success && result.qrImageUrl) {
+        setAdminQrUrlInput(result.qrImageUrl);
+        setAdminSaveFeedback(`${currentConfig.name} QR uploaded to Firebase & updated globally!`);
+      } else {
+        setAdminSaveFeedback(result.message || 'Failed to upload QR code to Firebase.');
       }
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      setAdminSaveFeedback('Error uploading QR code to Firebase.');
+    } finally {
+      setIsUploadingQr(false);
+      if (e.target) e.target.value = '';
+      setTimeout(() => setAdminSaveFeedback(null), 4500);
+    }
   };
 
   // Admin-only save QR & UPI ID handler
-  const handleAdminSaveQrAndUpi = (e: React.FormEvent) => {
+  const handleAdminSaveQrAndUpi = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) return;
 
@@ -145,20 +155,36 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
     const finalUpiId = adminUpiIdInput.trim() || currentConfig.upiId;
     const finalPayee = adminPayeeNameInput.trim() || currentConfig.payeeName;
 
-    const ok = updateMethodPaymentQr(
-      selectedMethod,
-      finalQrUrl,
-      finalUpiId,
-      finalPayee,
-      currentConfig.instructions
-    );
+    setIsUploadingQr(true);
+    try {
+      const result = await uploadMethodQrToFirebase({
+        method: selectedMethod,
+        directImageUrl: finalQrUrl,
+        upiId: finalUpiId,
+        payeeName: finalPayee,
+        instructions: currentConfig.instructions,
+      });
 
-    if (ok) {
-      setAdminSaveFeedback(
-        `${currentConfig.name} QR Code & UPI ID (${finalUpiId}) updated and synced!`
-      );
-      setAdminQrUrlInput('');
-      setTimeout(() => setAdminSaveFeedback(null), 4000);
+      if (result.success) {
+        setAdminSaveFeedback(
+          `${currentConfig.name} QR Code & UPI ID (${finalUpiId}) synced globally to Firebase!`
+        );
+        setAdminQrUrlInput('');
+      } else {
+        updateMethodPaymentQr(
+          selectedMethod,
+          finalQrUrl,
+          finalUpiId,
+          finalPayee,
+          currentConfig.instructions
+        );
+        setAdminSaveFeedback(
+          `${currentConfig.name} QR Code & UPI ID (${finalUpiId}) updated!`
+        );
+      }
+    } finally {
+      setIsUploadingQr(false);
+      setTimeout(() => setAdminSaveFeedback(null), 4500);
     }
   };
 
@@ -683,11 +709,12 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
                   <div className="flex items-center justify-center gap-2 w-full">
                     <button
                       type="button"
+                      disabled={isUploadingQr}
                       onClick={() => adminQrFileInputRef.current?.click()}
-                      className="flex-1 py-2 px-4 rounded-xl bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:brightness-110 text-black font-black text-xs shadow-[0_0_15px_rgba(212,175,55,0.35)] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="flex-1 py-2 px-4 rounded-xl bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:brightness-110 disabled:opacity-60 text-black font-black text-xs shadow-[0_0_15px_rgba(212,175,55,0.35)] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Upload className="w-3.5 h-3.5 text-black" />
-                      <span>Change QR Code</span>
+                      <span>{isUploadingQr ? 'Uploading to Firebase...' : 'Change QR Code'}</span>
                     </button>
                     <button
                       type="button"
@@ -754,7 +781,9 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
               {/* View-Only Player Guarantee Notice (for regular players) */}
               {!isAdmin && (
                 <p className="text-[10px] text-gray-500 italic">
-                  Static merchant QR verified by Bitora VIP administration &bull; View-only player mode
+                  {isQrSyncedFromFirebase
+                    ? 'Live merchant QR dynamically synced from Firebase • View-only player mode'
+                    : 'Official merchant QR verified by Bitora VIP administration • View-only player mode'}
                 </p>
               )}
 

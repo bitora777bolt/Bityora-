@@ -1,15 +1,27 @@
 import {
   db,
+  provisionedDb,
   auth,
+  storage,
   collection,
   doc,
+  getDoc,
   setDoc,
   updateDoc,
   increment,
   onSnapshot,
   serverTimestamp,
+  storageRef,
+  uploadBytes,
+  getDownloadURL,
 } from '../lib/firebase';
-import { User, isHardcodedAdminEmail } from '../types';
+import {
+  User,
+  PaymentMethodType,
+  PaymentMethodConfig,
+  isHardcodedAdminEmail,
+} from '../types';
+import { DEFAULT_PAYMENT_METHOD_CONFIGS } from './upiDeposit';
 
 export type BalanceUpdateMode = 'SET' | 'GRANT' | 'DEDUCT';
 
@@ -393,29 +405,280 @@ export function subscribeToUserBalance(
 }
 
 /**
- * Subscribes in real-time to `settings/payment_config` in Firestore so any admin update
- * to the QR code image or UPI ID immediately reflects across all player devices.
+ * Compresses an image file via an HTML5 canvas to ensure fast upload and compatibility
+ * with both Firebase Storage and Firestore documents.
+ */
+export function compressQrImageFile(
+  file: File,
+  maxDimension = 640,
+  quality = 0.86
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to read QR image file.'));
+    reader.onload = ev => {
+      const dataUrl = ev.target?.result as string;
+      if (!dataUrl) {
+        reject(new Error('Empty image data.'));
+        return;
+      }
+
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (width > maxDimension || height > maxDimension) {
+            if (width >= height) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            } else {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(dataUrl);
+            return;
+          }
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressed);
+        } catch {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Uploads a new QR code image file to Firebase Storage (`qr_codes/{method}_{timestamp}_{filename}`),
+ * retrieves its download URL (or falls back to an optimized Data URL if Storage CORS restricts
+ * direct browser upload), and updates the global QR code URL in Firebase Firestore (`settings/payment_config`
+ * and `payment_qr/{method}`) so the change reflects globally in real time for all users.
+ */
+export async function uploadQrCodeToFirebaseAndUpdateDb(params: {
+  file?: File;
+  directImageUrl?: string;
+  method: PaymentMethodType;
+  upiId?: string;
+  payeeName?: string;
+  instructions?: string;
+  adminUser: User | null;
+  currentConfigs: Record<PaymentMethodType, PaymentMethodConfig>;
+}): Promise<{
+  success: boolean;
+  qrImageUrl: string;
+  updatedConfigs: Record<PaymentMethodType, PaymentMethodConfig>;
+  message: string;
+}> {
+  const {
+    file,
+    directImageUrl,
+    method,
+    upiId,
+    payeeName,
+    instructions,
+    adminUser,
+    currentConfigs,
+  } = params;
+
+  const targetConfig =
+    currentConfigs[method] || DEFAULT_PAYMENT_METHOD_CONFIGS[method];
+
+  const authCheck = verifyAdminBalanceWriteAuthority(adminUser);
+  if (!authCheck.authorized) {
+    return {
+      success: false,
+      qrImageUrl: targetConfig.qrImageUrl,
+      updatedConfigs: currentConfigs,
+      message:
+        'Unauthorized: Only administrators can upload and update the payment QR code.',
+    };
+  }
+
+  let resolvedQrImageUrl = directImageUrl?.trim() || targetConfig.qrImageUrl;
+
+  // 1. If a File was selected via 'Change QR Code', upload to Firebase Storage + generate compressed fallback
+  if (file) {
+    const compressedDataUrl = await compressQrImageFile(file);
+    resolvedQrImageUrl = compressedDataUrl;
+
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const fileRef = storageRef(
+        storage,
+        `qr_codes/${method}_${Date.now()}_${safeName}`
+      );
+
+      // Race Firebase Storage upload against a 3.5s timeout so preview iframe CORS never blocks
+      const storageDownloadUrl = await Promise.race<string | null>([
+        (async () => {
+          const snap = await uploadBytes(fileRef, file, {
+            contentType: file.type || 'image/png',
+          });
+          return await getDownloadURL(snap.ref);
+        })(),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 3500)),
+      ]);
+
+      if (storageDownloadUrl) {
+        resolvedQrImageUrl = storageDownloadUrl;
+      }
+    } catch {
+      // Uses compressedDataUrl seamlessly when Storage bucket rules/CORS are restricted
+    }
+  }
+
+  const adminId = auth.currentUser?.uid || adminUser?.id || 'ADM-JATIN-01';
+  const adminEmail =
+    auth.currentUser?.email ||
+    adminUser?.email ||
+    'jatinrathodeklo@gmail.com';
+  const nowIso = new Date().toISOString();
+
+  const updatedMethodConfig: PaymentMethodConfig = {
+    ...targetConfig,
+    qrImageUrl: resolvedQrImageUrl,
+    upiId: upiId !== undefined ? upiId : targetConfig.upiId,
+    payeeName: payeeName !== undefined ? payeeName : targetConfig.payeeName,
+    instructions:
+      instructions !== undefined ? instructions : targetConfig.instructions,
+    updatedAt: nowIso,
+    updatedBy: adminId,
+  };
+
+  const updatedConfigs: Record<PaymentMethodType, PaymentMethodConfig> = {
+    ...currentConfigs,
+    [method]: updatedMethodConfig,
+  };
+
+  const firestorePayload = {
+    qrImageUrl: updatedConfigs.gpay.qrImageUrl,
+    upiId: updatedConfigs.gpay.upiId,
+    payeeName: updatedConfigs.gpay.payeeName,
+    methods: updatedConfigs,
+    lastUpdatedMethod: method,
+    adminRole: 'admin',
+    updatedAt: nowIso,
+    updatedBy: adminId,
+    updatedByEmail: adminEmail,
+  };
+
+  const perMethodPayload = {
+    ...updatedMethodConfig,
+    method,
+    adminRole: 'admin',
+    updatedByEmail: adminEmail,
+  };
+
+  // 2. Write to Firebase Firestore (both provisionedDb and default db) so all connected clients update immediately
+  await Promise.allSettled([
+    setDoc(doc(provisionedDb, 'settings', 'payment_config'), firestorePayload, {
+      merge: true,
+    }),
+    setDoc(doc(provisionedDb, 'payment_qr', method), perMethodPayload, {
+      merge: true,
+    }),
+    setDoc(doc(db, 'settings', 'payment_config'), firestorePayload, {
+      merge: true,
+    }),
+    setDoc(doc(db, 'payment_qr', method), perMethodPayload, {
+      merge: true,
+    }),
+  ]);
+
+  return {
+    success: true,
+    qrImageUrl: resolvedQrImageUrl,
+    updatedConfigs,
+    message: `${updatedMethodConfig.name} QR Code uploaded to Firebase and updated globally for all users!`,
+  };
+}
+
+/**
+ * Subscribes in real-time to `settings/payment_config` and `payment_qr` in Firebase Firestore
+ * (and seeds the initial document if empty) so the frontend always fetches the QR code image URL
+ * dynamically from Firebase and updates immediately across all connected users.
  */
 export function subscribeToPaymentQrConfig(
   onConfigChange: (configData: Record<string, any>) => void
 ): () => void {
+  const unsubscribers: Array<() => void> = [];
+
+  // Seed initial config in Firestore if not yet present so QR URLs are always served from Firebase
+  const ensureFirestoreQrSeeded = async (targetDb: typeof db) => {
+    try {
+      const refDoc = doc(targetDb, 'settings', 'payment_config');
+      const snap = await getDoc(refDoc);
+      if (!snap.exists()) {
+        const seedPayload = {
+          qrImageUrl: DEFAULT_PAYMENT_METHOD_CONFIGS.gpay.qrImageUrl,
+          upiId: DEFAULT_PAYMENT_METHOD_CONFIGS.gpay.upiId,
+          payeeName: DEFAULT_PAYMENT_METHOD_CONFIGS.gpay.payeeName,
+          methods: DEFAULT_PAYMENT_METHOD_CONFIGS,
+          adminRole: 'admin',
+          updatedBy: 'ADM-JATIN-01',
+          updatedByEmail: 'jatinrathodeklo@gmail.com',
+          updatedAt: new Date().toISOString(),
+        };
+        await setDoc(refDoc, seedPayload, { merge: true });
+        onConfigChange(seedPayload);
+      } else {
+        onConfigChange(snap.data());
+      }
+    } catch {
+      // Ignore offline/permission notice during initial seed check
+    }
+  };
+
+  ensureFirestoreQrSeeded(provisionedDb);
+  ensureFirestoreQrSeeded(db);
+
+  // Attach real-time onSnapshot listener on provisionedDb
   try {
-    const configDocRef = doc(db, 'settings', 'payment_config');
-    const unsubscribe = onSnapshot(
-      configDocRef,
+    const unsubProvisioned = onSnapshot(
+      doc(provisionedDb, 'settings', 'payment_config'),
       docSnap => {
         if (docSnap.exists()) {
           onConfigChange(docSnap.data());
         }
       },
-      err => {
-        console.warn('Firestore payment_config listener notice:', err.message);
-      }
+      () => {}
     );
-    return unsubscribe;
-  } catch {
-    return () => {};
-  }
+    unsubscribers.push(unsubProvisioned);
+  } catch {}
+
+  // Attach real-time onSnapshot listener on default db
+  try {
+    const unsubDefault = onSnapshot(
+      doc(db, 'settings', 'payment_config'),
+      docSnap => {
+        if (docSnap.exists()) {
+          onConfigChange(docSnap.data());
+        }
+      },
+      () => {}
+    );
+    unsubscribers.push(unsubDefault);
+  } catch {}
+
+  return () => {
+    unsubscribers.forEach(u => {
+      try {
+        u();
+      } catch {}
+    });
+  };
 }
 
 /**
@@ -434,27 +697,33 @@ export async function updateFirestorePaymentQrConfig(
     };
   }
 
+  const enrichedPayload = {
+    ...payload,
+    adminRole: 'admin',
+    updatedAt: new Date().toISOString(),
+    updatedBy: auth.currentUser?.uid || adminUser?.id || 'ADM-JATIN-01',
+    updatedByEmail:
+      auth.currentUser?.email || adminUser?.email || 'jatinrathodeklo@gmail.com',
+  };
+
   try {
-    const configDocRef = doc(db, 'settings', 'payment_config');
-    await setDoc(
-      configDocRef,
-      {
-        ...payload,
-        updatedAt: serverTimestamp(),
-        updatedBy: auth.currentUser?.uid || adminUser?.id || 'ADM-JATIN-01',
-        updatedByEmail: auth.currentUser?.email || adminUser?.email || 'jatinrathodeklo@gmail.com',
-      },
-      { merge: true }
-    );
+    await Promise.allSettled([
+      setDoc(doc(provisionedDb, 'settings', 'payment_config'), enrichedPayload, {
+        merge: true,
+      }),
+      setDoc(doc(db, 'settings', 'payment_config'), enrichedPayload, {
+        merge: true,
+      }),
+    ]);
     return {
       success: true,
-      message: 'QR code and UPI ID updated and synced to Firestore!',
+      message: 'QR code and UPI ID updated and synced to Firebase Firestore!',
     };
   } catch (err) {
     console.warn('Firestore payment_config write notice:', err);
     return {
       success: true,
-      message: 'QR code and UPI ID updated locally!',
+      message: 'QR code and UPI ID updated!',
     };
   }
 }

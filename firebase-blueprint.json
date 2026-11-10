@@ -68,6 +68,22 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "userId", "playerId", "amount", "utr", "status"]
+    },
+    "PaymentQrConfig": {
+      "title": "PaymentQrConfig",
+      "description": "Global dynamic payment QR code URL and UPI configuration managed by administrators",
+      "type": "object",
+      "properties": {
+        "method": { "type": "string", "enum": ["gpay", "phonepe", "paytm"] },
+        "qrImageUrl": { "type": "string" },
+        "upiId": { "type": "string" },
+        "payeeName": { "type": "string" },
+        "instructions": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "updatedByEmail": { "type": "string" }
+      },
+      "required": ["qrImageUrl", "upiId"]
     }
   },
   "firestore": {
@@ -82,6 +98,14 @@
     "/deposit_requests/{depositId}": {
       "schema": "DepositRequest",
       "description": "Manual deposit requests submitted by players"
+    },
+    "/settings/{docId}": {
+      "schema": "PaymentQrConfig",
+      "description": "Global payment QR code and UPI configuration readable by all users and writable by admins"
+    },
+    "/payment_qr/{methodId}": {
+      "schema": "PaymentQrConfig",
+      "description": "Per-method dynamic QR code URL and UPI configuration in Firestore"
     }
   }
 }

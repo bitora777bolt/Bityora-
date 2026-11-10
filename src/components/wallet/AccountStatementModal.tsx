@@ -68,6 +68,7 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
     ownerPaymentQr,
     ownerUpiId,
     updateOwnerPaymentQr,
+    uploadMethodQrToFirebase,
     paymentMethodConfigs,
     pendingDeposits,
     activePendingDeposit,
@@ -153,7 +154,7 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
   const [withdrawDestination, setWithdrawDestination] = useState<string>('');
   const [withdrawMsg, setWithdrawMsg] = useState<{ text: string; isError?: boolean } | null>(null);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -169,18 +170,27 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const ok = updateOwnerPaymentQr(dataUrl);
-      if (ok) {
-        setPhotoUploadMsg('✓ Owner payment scanner photo updated successfully by authorized user!');
+    setPhotoUploadMsg('Uploading QR code to Firebase & updating database globally...');
+    try {
+      const result = await uploadMethodQrToFirebase({
+        method: selectedPaymentMethod,
+        file,
+        upiId: activeMethodConfig?.upiId,
+        payeeName: activeMethodConfig?.payeeName,
+        instructions: activeMethodConfig?.instructions,
+      });
+
+      if (result.success) {
+        setPhotoUploadMsg('✓ QR code uploaded to Firebase & updated globally for all players!');
       } else {
-        setPhotoUploadMsg('Authority check failed: Administrator credentials required.');
+        setPhotoUploadMsg(result.message || 'Authority check failed: Administrator credentials required.');
       }
-      setTimeout(() => setPhotoUploadMsg(null), 3000);
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      setPhotoUploadMsg('Failed to upload QR code to Firebase.');
+    } finally {
+      if (e.target) e.target.value = '';
+      setTimeout(() => setPhotoUploadMsg(null), 4000);
+    }
   };
 
   const handleCopyUpi = () => {
