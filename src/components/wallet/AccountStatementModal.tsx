@@ -884,6 +884,25 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
                   </div>
                 </div>
 
+                {/* Conditionally rendered 'Change QR Code' button: directly above the UPI ID (Visible ONLY to Admin) */}
+                {(currentUser?.role === 'admin' || isHardcodedAdminEmail(currentUser?.email)) && (
+                  <div className="flex flex-col items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleTriggerPhotoUpload}
+                      className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:brightness-110 text-black font-black text-xs shadow-[0_0_15px_rgba(212,175,55,0.35)] transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Upload className="w-4 h-4 text-black" />
+                      <span>Change QR Code</span>
+                    </button>
+                    {photoUploadMsg && (
+                      <p className="w-full text-center text-[11px] text-emerald-400 font-bold bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/30">
+                        {photoUploadMsg}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* UPI ID & Payee Name Details */}
                 <div className="bg-[#121622] p-3 rounded-2xl border border-[#242c3d] flex items-center justify-between">
                   <div>

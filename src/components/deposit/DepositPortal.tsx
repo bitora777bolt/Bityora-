@@ -110,7 +110,7 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
     }
   }, [selectedMethod, currentConfig.upiId, currentConfig.payeeName]);
 
-  // Admin-only QR image file upload handler
+  // Admin-only QR image file upload handler (immediately updates the active method QR code)
   const handleAdminQrFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isAdmin) return;
     const file = e.target.files?.[0];
@@ -120,6 +120,17 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
       const dataUrl = ev.target?.result as string;
       if (dataUrl) {
         setAdminQrUrlInput(dataUrl);
+        const ok = updateMethodPaymentQr(
+          selectedMethod,
+          dataUrl,
+          adminUpiIdInput.trim() || currentConfig.upiId,
+          adminPayeeNameInput.trim() || currentConfig.payeeName,
+          currentConfig.instructions
+        );
+        if (ok) {
+          setAdminSaveFeedback(`${currentConfig.name} QR Code updated!`);
+          setTimeout(() => setAdminSaveFeedback(null), 4000);
+        }
       }
     };
     reader.readAsDataURL(file);
@@ -659,6 +670,42 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
                 </div>
               </div>
 
+              {/* Conditionally rendered 'Change QR Code' button: directly below the payment action button and above the UPI ID (Visible ONLY to Admin) */}
+              {isAdmin && (
+                <div className="w-full pt-1 flex flex-col items-center gap-2">
+                  <input
+                    type="file"
+                    ref={adminQrFileInputRef}
+                    accept="image/*"
+                    onChange={handleAdminQrFileUpload}
+                    className="hidden"
+                  />
+                  <div className="flex items-center justify-center gap-2 w-full">
+                    <button
+                      type="button"
+                      onClick={() => adminQrFileInputRef.current?.click()}
+                      className="flex-1 py-2 px-4 rounded-xl bg-gradient-to-r from-[#d4af37] via-[#f5d061] to-[#aa820a] hover:brightness-110 text-black font-black text-xs shadow-[0_0_15px_rgba(212,175,55,0.35)] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-black" />
+                      <span>Change QR Code</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAdminQrEditor(prev => !prev)}
+                      className="py-2 px-3 rounded-xl bg-[#141926] hover:bg-[#1e2638] border border-amber-500/40 text-amber-300 text-xs font-bold transition-colors cursor-pointer shrink-0"
+                    >
+                      {showAdminQrEditor ? 'Hide UPI Editor' : 'Edit UPI ID'}
+                    </button>
+                  </div>
+                  {adminSaveFeedback && !showAdminQrEditor && (
+                    <div className="w-full p-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold flex items-center justify-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>{adminSaveFeedback}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="pt-2 space-y-1 w-full">
                 <div className="p-2.5 rounded-xl bg-[#080a10] border border-[#242c3d] flex items-center justify-between gap-2">
                   <div className="text-left overflow-hidden">
@@ -714,45 +761,20 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
               {/* ========================================================== */}
               {/* ADMIN-ONLY FEATURE: Update QR Code & UPI ID (Hidden from regular players) */}
               {/* ========================================================== */}
-              {isAdmin && (
+              {isAdmin && showAdminQrEditor && (
                 <div className="w-full pt-2 border-t border-amber-500/30 text-left space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <ShieldCheck className="w-4 h-4 text-[#ffd700]" />
-                      <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
-                        Admin Only: {currentConfig.name} QR &amp; UPI Control
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowAdminQrEditor(prev => !prev)}
-                      className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[#ffd700] text-[11px] font-bold transition-colors cursor-pointer"
-                    >
-                      {showAdminQrEditor ? 'Hide Editor' : 'Update QR & UPI ID'}
-                    </button>
-                  </div>
-
-                  {showAdminQrEditor && (
-                    <form
-                      onSubmit={handleAdminSaveQrAndUpi}
-                      className="p-3.5 rounded-2xl bg-[#080a10] border border-amber-500/40 space-y-3 animate-in fade-in duration-200"
-                    >
-                      <input
-                        type="file"
-                        ref={adminQrFileInputRef}
-                        accept="image/*"
-                        onChange={handleAdminQrFileUpload}
-                        className="hidden"
-                      />
-
-                      <div>
-                        <label className="text-[11px] font-bold text-gray-300 block mb-1">
-                          1. Update {currentConfig.name} QR Code Image:
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => adminQrFileInputRef.current?.click()}
+                  <form
+                    onSubmit={handleAdminSaveQrAndUpi}
+                    className="p-3.5 rounded-2xl bg-[#080a10] border border-amber-500/40 space-y-3 animate-in fade-in duration-200"
+                  >
+                    <div>
+                      <label className="text-[11px] font-bold text-gray-300 block mb-1">
+                        1. Update {currentConfig.name} QR Code Image:
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => adminQrFileInputRef.current?.click()}
                             className="px-3 py-2 rounded-xl bg-[#141926] hover:bg-[#1e2638] border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
                           >
                             <Upload className="w-3.5 h-3.5" />
@@ -809,7 +831,6 @@ export const DepositPortal: React.FC<DepositPortalProps> = ({
                         Save &amp; Publish {currentConfig.name} QR + UPI ID
                       </button>
                     </form>
-                  )}
                 </div>
               )}
             </div>
