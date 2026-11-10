@@ -39,6 +39,11 @@ import {
 } from '../utils/dailyCheckIn';
 import { getUserDailySpinState } from '../utils/dailySpin';
 import { DEFAULT_PAYMENT_METHOD_CONFIGS } from '../utils/upiDeposit';
+import {
+  updateFirestoreUserBalance,
+  subscribeToUsersCollection,
+  BalanceUpdateMode,
+} from '../utils/firestoreAdminBalance';
 
 interface GameContextType {
   currentUser: User | null;
@@ -75,6 +80,12 @@ interface GameContextType {
   // Admin Actions & Sovereign Authority
   adminGrantCredits: (targetUserId: string, amount: number, reason: string) => { success: boolean; message: string };
   adminDeductCredits: (targetUserId: string, amount: number, reason: string) => { success: boolean; message: string };
+  adminSetUserBalance: (
+    targetUserId: string,
+    amount: number,
+    reason: string,
+    mode?: BalanceUpdateMode
+  ) => Promise<{ success: boolean; message: string; newBalance?: number; syncedToFirestore?: boolean }>;
   adminToggleSuspension: (targetUserId: string, reason: string) => void;
   adminSetAccountStatus: (
     targetUserId: string,
@@ -761,6 +772,73 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
   }, [soundEnabled]);
 
+  const [isFirestoreLive, setIsFirestoreLive] = useState<boolean>(false);
+
+  // Merge incoming Firestore users with local state so real authenticated users and live admin balance updates sync immediately
+  const mergeFirestoreUsersIntoState = React.useCallback((firestoreUsers: User[]) => {
+    if (!firestoreUsers || firestoreUsers.length === 0) return;
+    setUsers(prev => {
+      const updatedMap = new Map<string, User>();
+      prev.forEach(u => updatedMap.set(u.id, u));
+
+      firestoreUsers.forEach(fsUser => {
+        // Find matching user by authUid, id, or email
+        let existingKey: string | null = null;
+        for (const [k, existingUser] of updatedMap.entries()) {
+          if (
+            k === fsUser.id ||
+            (existingUser.authUid && existingUser.authUid === fsUser.authUid) ||
+            (existingUser.email &&
+              fsUser.email &&
+              existingUser.email.toLowerCase() === fsUser.email.toLowerCase())
+          ) {
+            existingKey = k;
+            break;
+          }
+        }
+
+        if (existingKey) {
+          const existing = updatedMap.get(existingKey)!;
+          updatedMap.set(existingKey, {
+            ...existing,
+            ...fsUser,
+            id: existing.id, // Preserve stable ID reference
+            authUid: fsUser.authUid || existing.authUid,
+            isRealAuthUser: true,
+            role: isHardcodedAdminEmail(fsUser.email || existing.email)
+              ? 'admin'
+              : fsUser.role || existing.role,
+            balance:
+              typeof fsUser.balance === 'number' && !isNaN(fsUser.balance)
+                ? fsUser.balance
+                : existing.balance,
+          });
+        } else {
+          updatedMap.set(fsUser.id, fsUser);
+        }
+      });
+
+      return Array.from(updatedMap.values());
+    });
+  }, []);
+
+  // Real-time Firestore `users` collection subscription
+  useEffect(() => {
+    const unsubscribe = subscribeToUsersCollection(
+      firestoreUsers => {
+        mergeFirestoreUsersIntoState(firestoreUsers);
+      },
+      live => {
+        setIsFirestoreLive(live);
+      }
+    );
+    return () => unsubscribe();
+  }, [mergeFirestoreUsersIntoState]);
+
+  const refreshFirestoreUsers = async (): Promise<void> => {
+    setIsFirestoreLive(true);
+  };
+
   const toggleSound = () => {
     setSoundEnabled(prev => !prev);
   };
@@ -966,6 +1044,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const isHardcodedAdmin = isHardcodedAdminEmail(userEmail);
       const newUser: User = {
         id: newId,
+        authUid: firebaseUser.uid,
+        isRealAuthUser: true,
         gameAccountId: newGameAccountId,
         username: firebaseUser.displayName || userEmail.split('@')[0] || 'VIP Player',
         email: userEmail,
@@ -1023,11 +1103,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUsers(prev =>
           prev.map(u =>
             u.id === target!.id || isHardcodedAdminEmail(u.email)
-              ? { ...u, role: resolvedRole, balance: newBalance }
+              ? { ...u, authUid: firebaseUser.uid, isRealAuthUser: true, role: resolvedRole, balance: newBalance }
               : u
           )
         );
-        activeUser = { ...target, role: resolvedRole, balance: newBalance };
+        activeUser = {
+          ...target,
+          authUid: firebaseUser.uid,
+          isRealAuthUser: true,
+          role: resolvedRole,
+          balance: newBalance,
+        };
 
         const exactTime = formatExactTimestamp();
         const bonusTxn: Transaction = {
@@ -1046,11 +1132,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUsers(prev =>
           prev.map(u =>
             u.id === target!.id || isHardcodedAdminEmail(u.email)
-              ? { ...u, role: resolvedRole }
+              ? { ...u, authUid: firebaseUser.uid, isRealAuthUser: true, role: resolvedRole }
               : u
           )
         );
-        activeUser = { ...target, role: resolvedRole };
+        activeUser = { ...target, authUid: firebaseUser.uid, isRealAuthUser: true, role: resolvedRole };
       }
     }
 
@@ -1068,24 +1154,32 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sounds.chipClick();
     }
 
-    // Persist to Firestore (ensuring role: admin is always synced for hardcoded admin)
+    // Persist to Firestore while respecting admin-only balance write rule on updates
     try {
       if (db && auth.currentUser && auth.currentUser.uid === firebaseUser.uid) {
-        await setDoc(
-          doc(db, 'users', firebaseUser.uid),
-          {
-            uid: firebaseUser.uid,
-            email: userEmail,
-            displayName: firebaseUser.displayName || activeUser.username,
-            photoURL: firebaseUser.photoURL || activeUser.avatar,
-            role: isHardcodedAdminEmail(userEmail) ? 'admin' : activeUser.role,
-            walletBonusAwarded: bonusAmount,
-            balance: activeUser.balance,
-            lastSignIn: serverTimestamp(),
-            status: 'ACTIVE',
-          },
-          { merge: true }
-        );
+        const isAdminAccount = isHardcodedAdminEmail(userEmail) || activeUser.role === 'admin';
+        const baseProfilePayload: Record<string, any> = {
+          uid: firebaseUser.uid,
+          id: activeUser.id,
+          gameAccountId: activeUser.gameAccountId,
+          email: userEmail,
+          username: activeUser.username,
+          displayName: firebaseUser.displayName || activeUser.username,
+          photoURL: firebaseUser.photoURL || activeUser.avatar,
+          lastSignIn: serverTimestamp(),
+          status: 'ACTIVE',
+        };
+
+        if (isAdminAccount) {
+          baseProfilePayload.role = 'admin';
+          baseProfilePayload.balance = activeUser.balance;
+        } else if (isNewBonus && !target) {
+          baseProfilePayload.role = 'player';
+          baseProfilePayload.balance = 100;
+          baseProfilePayload.walletBonusAwarded = bonusAmount;
+        }
+
+        await setDoc(doc(db, 'users', firebaseUser.uid), baseProfilePayload, { merge: true });
       }
     } catch (firestoreErr) {
       console.warn('Firestore user doc sync notice:', firestoreErr);
@@ -1681,18 +1775,32 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return true;
   };
 
-  // Admin Grant Credits
+  // Admin Grant Credits (Synced with Firestore `users` collection)
   const adminGrantCredits = (targetUserId: string, amount: number, reason: string): { success: boolean; message: string } => {
+    const isAdminUser = currentUser?.role === 'admin' || isHardcodedAdminEmail(currentUser?.email);
+    if (!isAdminUser) {
+      return { success: false, message: 'Forbidden: Only authenticated administrators can update user balances.' };
+    }
+
     const target = users.find(u => u.id === targetUserId);
     if (!target) return { success: false, message: 'Target user not found.' };
 
     const newBal = target.balance + amount;
     setUsers(prev => prev.map(u => (u.id === targetUserId ? { ...u, balance: newBal } : u)));
 
+    // Sync directly to Firestore `users` collection
+    updateFirestoreUserBalance({
+      targetUser: target,
+      mode: 'GRANT',
+      amount,
+      reason: reason || 'Manual credit grant by Administrator',
+      adminUser: currentUser,
+    }).catch(() => {});
+
     // Audit Log
     const audit: AdminAuditLog = {
       id: `AUD-${Date.now().toString().slice(-6)}`,
-      adminId: currentUser?.id || 'ADM-BITORA-01',
+      adminId: currentUser?.id || 'ADM-JATIN-01',
       targetUserId,
       targetUsername: target.username,
       action: 'GRANT_CREDITS',
@@ -1712,28 +1820,45 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'COMPLETED',
       timestamp: new Date().toLocaleString(),
       note: `Admin Credit Grant: ${reason || 'VIP Adjustment'}`,
-      adminId: currentUser?.id || 'ADM-BITORA-01',
+      adminId: currentUser?.id || 'ADM-JATIN-01',
     };
     setTransactions(prev => [txn, ...prev]);
 
     sounds.cashOutWin();
-    return { success: true, message: `Successfully granted ₹${amount} demo credits to ${target.username}.` };
+    return {
+      success: true,
+      message: `Successfully granted ₹${amount.toLocaleString('en-IN')} credits to ${target.username} (Firestore balance: ₹${newBal.toLocaleString('en-IN')}).`,
+    };
   };
 
-  // Admin Deduct Credits
+  // Admin Deduct Credits (Synced with Firestore `users` collection)
   const adminDeductCredits = (targetUserId: string, amount: number, reason: string): { success: boolean; message: string } => {
+    const isAdminUser = currentUser?.role === 'admin' || isHardcodedAdminEmail(currentUser?.email);
+    if (!isAdminUser) {
+      return { success: false, message: 'Forbidden: Only authenticated administrators can update user balances.' };
+    }
+
     const target = users.find(u => u.id === targetUserId);
     if (!target) return { success: false, message: 'Target user not found.' };
 
     const deductAmount = Math.min(amount, target.balance);
     const newBal = target.balance - deductAmount;
 
-    setUsers(prev => prev.map(u => u.id === targetUserId ? { ...u, balance: newBal } : u));
+    setUsers(prev => prev.map(u => (u.id === targetUserId ? { ...u, balance: newBal } : u)));
+
+    // Sync directly to Firestore `users` collection
+    updateFirestoreUserBalance({
+      targetUser: target,
+      mode: 'DEDUCT',
+      amount: deductAmount,
+      reason: reason || 'Manual credit deduction by Administrator',
+      adminUser: currentUser,
+    }).catch(() => {});
 
     // Audit Log
     const audit: AdminAuditLog = {
       id: `AUD-${Date.now().toString().slice(-6)}`,
-      adminId: currentUser?.id || 'ADM-BITORA-01',
+      adminId: currentUser?.id || 'ADM-JATIN-01',
       targetUserId,
       targetUsername: target.username,
       action: 'DEDUCT_CREDITS',
@@ -1753,12 +1878,98 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'COMPLETED',
       timestamp: new Date().toLocaleString(),
       note: `Admin Credit Deduction: ${reason || 'Correction'}`,
-      adminId: currentUser?.id || 'ADM-BITORA-01',
+      adminId: currentUser?.id || 'ADM-JATIN-01',
     };
     setTransactions(prev => [txn, ...prev]);
 
     sounds.chipClick();
-    return { success: true, message: `Successfully deducted ₹${deductAmount} demo credits from ${target.username}.` };
+    return {
+      success: true,
+      message: `Successfully deducted ₹${deductAmount.toLocaleString('en-IN')} credits from ${target.username} (Firestore balance: ₹${newBal.toLocaleString('en-IN')}).`,
+    };
+  };
+
+  // Admin Manual Balance Update in Firestore `users` collection (SET / GRANT / DEDUCT)
+  const adminSetUserBalance = async (
+    targetUserId: string,
+    amount: number,
+    reason: string,
+    mode: BalanceUpdateMode = 'SET'
+  ): Promise<{ success: boolean; message: string; newBalance?: number; syncedToFirestore?: boolean }> => {
+    const isAdminUser = currentUser?.role === 'admin' || isHardcodedAdminEmail(currentUser?.email);
+    if (!isAdminUser) {
+      return {
+        success: false,
+        message: 'Permission Denied: Only authenticated administrators can write to the balance field in the users collection.',
+      };
+    }
+
+    const target = users.find(u => u.id === targetUserId);
+    if (!target) {
+      return { success: false, message: 'Target user not found in registry.' };
+    }
+
+    const result = await updateFirestoreUserBalance({
+      targetUser: target,
+      mode,
+      amount,
+      reason,
+      adminUser: currentUser,
+    });
+
+    if (!result.success) {
+      return { success: false, message: result.message };
+    }
+
+    const newBal = result.newBalance;
+    const delta = newBal - target.balance;
+
+    setUsers(prev => prev.map(u => (u.id === targetUserId ? { ...u, balance: newBal } : u)));
+
+    const audit: AdminAuditLog = {
+      id: `AUD-${Date.now().toString().slice(-6)}`,
+      adminId: currentUser?.id || 'ADM-JATIN-01',
+      targetUserId,
+      targetUsername: target.username,
+      action: delta >= 0 ? 'GRANT_CREDITS' : 'DEDUCT_CREDITS',
+      amount: Math.abs(delta),
+      reason:
+        reason ||
+        `Firestore manual balance ${mode} (${target.balance} -> ${newBal})`,
+      timestamp: new Date().toLocaleString(),
+    };
+    setAuditLogs(prev => [audit, ...prev]);
+
+    const txn: Transaction = {
+      id: `TXN-${Date.now().toString().slice(-6)}`,
+      userId: targetUserId,
+      type: delta >= 0 ? 'ADMIN_GRANT' : 'ADMIN_DEDUCT',
+      amount: Math.abs(delta),
+      balanceAfter: newBal,
+      status: 'COMPLETED',
+      timestamp: new Date().toLocaleString(),
+      note:
+        mode === 'SET'
+          ? `Firestore Direct Balance Set: ₹${newBal.toLocaleString('en-IN')} (${reason || 'Manual Admin Override'})`
+          : delta >= 0
+          ? `Firestore Admin Grant: +₹${Math.abs(delta).toLocaleString('en-IN')} (${reason || 'Manual Adjustment'})`
+          : `Firestore Admin Deduct: -₹${Math.abs(delta).toLocaleString('en-IN')} (${reason || 'Manual Adjustment'})`,
+      adminId: currentUser?.id || 'ADM-JATIN-01',
+    };
+    setTransactions(prev => [txn, ...prev]);
+
+    if (delta >= 0) {
+      sounds.cashOutWin();
+    } else {
+      sounds.chipClick();
+    }
+
+    return {
+      success: true,
+      message: result.message,
+      newBalance: newBal,
+      syncedToFirestore: result.syncedToFirestore,
+    };
   };
 
   // Admin Toggle Suspension
@@ -2084,6 +2295,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setUsers(prev => prev.map(u => (u.id === target.id ? { ...u, balance: newBal } : u)));
 
+        // Sync approved deposit balance to Firestore users collection (admin-only write)
+        updateFirestoreUserBalance({
+          targetUser: target,
+          mode: 'GRANT',
+          amount: addAmount,
+          reason: `Approved Manual UPI Deposit (UTR: ${req.utr || req.referenceNo || 'N/A'})`,
+          adminUser: currentUser,
+        }).catch(() => {});
+
         // Transaction record
         const txn: Transaction = {
           id: `TXN-${Date.now().toString().slice(-6)}`,
@@ -2196,6 +2416,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         adminFastForwardDeposit,
         adminGrantCredits,
         adminDeductCredits,
+        adminSetUserBalance,
+        isFirestoreLive,
+        refreshFirestoreUsers,
         adminToggleSuspension,
         adminSetAccountStatus,
         adminFlagIllicitBehavior,

@@ -5,23 +5,93 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Verified Administrator Authority Check
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.email == 'jatinrathodeklo@gmail.com' ||
         request.auth.token.email == 'admin@bitora.casino' ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        )
       );
     }
 
+    // Ensures balance is always a valid non-negative number when present
+    function hasValidBalanceType() {
+      return !('balance' in request.resource.data) || (
+        request.resource.data.balance is number &&
+        request.resource.data.balance >= 0
+      );
+    }
+
+    // Detects whether the incoming update modifies the protected `balance` field
+    function isModifyingBalance() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'balance',
+        'balanceUpdatedAt',
+        'balanceUpdatedBy',
+        'balanceUpdatedByEmail',
+        'balanceUpdateReason'
+      ]);
+    }
+
+    // Detects whether the incoming update modifies protected RBAC / enforcement fields
+    function isModifyingAdminControlledFields() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'role',
+        'accountStatus',
+        'isSuspended',
+        'riskLevel',
+        'violationCount',
+        'illicitActivityFlags'
+      ]);
+    }
+
     match /users/{userId} {
+      // Authenticated users and admins can read user profiles
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+      // Create: Admins can create any user with any valid balance.
+      // Regular users can only initialize their own profile without arbitrary balance injection.
+      allow create: if isSignedIn() && hasValidBalanceType() && (
+        isAdmin() || (
+          request.auth.uid == userId &&
+          (!('balance' in request.resource.data) || request.resource.data.balance in [0, 100, 110]) &&
+          (!('role' in request.resource.data) || request.resource.data.role == 'player')
+        )
+      );
+
+      // Update: ONLY authenticated admins can write to or modify the `balance` field.
+      // Regular users can update their own profile metadata (e.g. displayName, photoURL, lastSignIn)
+      // ONLY if `balance` and admin-controlled fields remain untouched.
+      allow update: if isSignedIn() && hasValidBalanceType() && (
+        isAdmin() || (
+          request.auth.uid == userId &&
+          !isModifyingBalance() &&
+          !isModifyingAdminControlledFields()
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /balance_audit_logs/{auditId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if false;
     }
 
     match /deposit_requests/{depositId} {
       allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isSignedIn();
       allow update, delete: if isAdmin();
+    }
+
+    match /admins/{adminUid} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
   }
 }

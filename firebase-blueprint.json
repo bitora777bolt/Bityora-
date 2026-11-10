@@ -2,7 +2,7 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "User profile with connected game account, role, balance, and status",
+      "description": "User profile with connected game account, role, balance, and admin balance audit fields",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
@@ -14,6 +14,10 @@
         "phone": { "type": "string" },
         "role": { "type": "string", "enum": ["player", "admin"] },
         "balance": { "type": "number" },
+        "balanceUpdatedAt": { "type": "string" },
+        "balanceUpdatedBy": { "type": "string" },
+        "balanceUpdatedByEmail": { "type": "string" },
+        "balanceUpdateReason": { "type": "string" },
         "accountStatus": { "type": "string", "enum": ["ACTIVE", "SUSPENDED", "FROZEN", "BLOCKED"] },
         "riskLevel": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
         "violationCount": { "type": "number" },
@@ -26,6 +30,27 @@
       },
       "required": ["uid", "email"]
     },
+    "BalanceAuditLog": {
+      "title": "BalanceAuditLog",
+      "description": "Immutable audit record of manual balance modifications performed by administrators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "targetDocId": { "type": "string" },
+        "targetUserId": { "type": "string" },
+        "targetUsername": { "type": "string" },
+        "targetEmail": { "type": "string" },
+        "mode": { "type": "string", "enum": ["SET", "GRANT", "DEDUCT"] },
+        "previousBalance": { "type": "number" },
+        "newBalance": { "type": "number" },
+        "delta": { "type": "number" },
+        "reason": { "type": "string" },
+        "adminId": { "type": "string" },
+        "adminEmail": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "targetDocId", "mode", "previousBalance", "newBalance", "adminId"]
+    },
     "DepositRequest": {
       "title": "DepositRequest",
       "description": "Manual UPI deposit request submitted by players for administrator verification",
@@ -35,6 +60,7 @@
         "userId": { "type": "string" },
         "playerId": { "type": "string" },
         "username": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["gpay", "phonepe", "paytm"] },
         "amount": { "type": "number" },
         "utr": { "type": "string" },
         "screenshotUrl": { "type": "string" },
@@ -47,7 +73,11 @@
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
-      "description": "User profile documents keyed by Auth UID"
+      "description": "User profile documents keyed by Auth UID where only admins can modify balance"
+    },
+    "/balance_audit_logs/{auditId}": {
+      "schema": "BalanceAuditLog",
+      "description": "Admin-only audit logs for manual balance updates"
     },
     "/deposit_requests/{depositId}": {
       "schema": "DepositRequest",

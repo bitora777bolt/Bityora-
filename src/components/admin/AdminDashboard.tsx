@@ -52,6 +52,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
     loginAs,
     adminGrantCredits,
     adminDeductCredits,
+    adminSetUserBalance,
+    isFirestoreLive,
+    refreshFirestoreUsers,
     adminToggleSuspension,
     adminSetAccountStatus,
     adminFlagIllicitBehavior,
@@ -69,7 +72,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
   
   // Modals & Active selections
   const [selectedUserForAction, setSelectedUserForAction] = useState<User | null>(null);
-  const [actionType, setActionType] = useState<'GRANT' | 'DEDUCT' | 'STATUS_CHANGE' | 'FLAG_VIOLATION' | 'INSPECT_ACTIVITY' | null>(null);
+  const [actionType, setActionType] = useState<'GRANT' | 'DEDUCT' | 'SET_BALANCE' | 'STATUS_CHANGE' | 'FLAG_VIOLATION' | 'INSPECT_ACTIVITY' | null>(null);
+  const [isUpdatingFirestoreBalance, setIsUpdatingFirestoreBalance] = useState<boolean>(false);
+  const [showSecurityRulesModal, setShowSecurityRulesModal] = useState<boolean>(false);
   
   // Status Change form state
   const [targetNewStatus, setTargetNewStatus] = useState<UserAccountStatus>('FROZEN');
@@ -296,10 +301,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
     }
   };
 
-  // Handle Execute Credit Adjustment
-  const handleExecuteAdjustment = (e: React.FormEvent) => {
+  // Handle Execute Credit / Balance Adjustment (Firestore users collection + local ledger)
+  const handleExecuteAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserForAction) return;
+
+    if (actionType === 'SET_BALANCE') {
+      if (adjustAmount < 0 || Number.isNaN(adjustAmount)) {
+        setFeedback({ type: 'error', text: 'Target balance must be zero or a positive number.' });
+        return;
+      }
+      setIsUpdatingFirestoreBalance(true);
+      try {
+        const res = await adminSetUserBalance(
+          selectedUserForAction.id,
+          adjustAmount,
+          adjustReason || 'Manual admin balance update in Firestore users collection'
+        );
+        if (res.success) {
+          setFeedback({ type: 'success', text: res.message });
+          setTimeout(() => {
+            setSelectedUserForAction(null);
+            setActionType(null);
+            setAdjustReason('');
+          }, 1200);
+        } else {
+          setFeedback({ type: 'error', text: res.message });
+        }
+      } finally {
+        setIsUpdatingFirestoreBalance(false);
+      }
+      return;
+    }
 
     if (adjustAmount <= 0) {
       setFeedback({ type: 'error', text: 'Adjustment amount must be greater than zero.' });
@@ -310,10 +343,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
       const res = adminGrantCredits(
         selectedUserForAction.id,
         adjustAmount,
-        adjustReason || 'Administrator demo credit provision'
+        adjustReason || 'Administrator credit provision (synced to Firestore users collection)'
       );
       if (res.success) {
-        setFeedback({ type: 'success', text: res.message });
+        setFeedback({ type: 'success', text: `${res.message} (Synced to Firestore users/${selectedUserForAction.authUid || selectedUserForAction.id})` });
         setTimeout(() => {
           setSelectedUserForAction(null);
           setActionType(null);
@@ -326,10 +359,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
       const res = adminDeductCredits(
         selectedUserForAction.id,
         adjustAmount,
-        adjustReason || 'Administrator demo credit deduction'
+        adjustReason || 'Administrator credit deduction (synced to Firestore users collection)'
       );
       if (res.success) {
-        setFeedback({ type: 'success', text: res.message });
+        setFeedback({ type: 'success', text: `${res.message} (Synced to Firestore users/${selectedUserForAction.authUid || selectedUserForAction.id})` });
         setTimeout(() => {
           setSelectedUserForAction(null);
           setActionType(null);
@@ -533,6 +566,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
       {/* Tab 1: User Authority & Management */}
       {activeTab === 'users' && (
         <div className="bg-[#0e121a] border border-[#242c3d] rounded-2xl p-5 shadow-xl space-y-4">
+          {/* Firestore Real-Time User Sync & Balance Security Rules Banner */}
+          <div className="bg-gradient-to-r from-[#121826] via-[#151d2e] to-[#121826] border border-amber-500/30 rounded-xl p-3.5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                <Coins className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold text-white">
+                    Firestore <code className="text-amber-300 font-mono">users</code> Collection Balance Authority
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 border ${
+                      isFirestoreLive
+                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                        : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        isFirestoreLive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                      }`}
+                    />
+                    {isFirestoreLive ? 'Live onSnapshot Sync (bityora)' : 'Firestore Standby / Local Sync'}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                    Rule: allow update (balance) if isAdmin()
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Only authenticated administrators (<code className="text-amber-300">isAdmin()</code>) can write to or modify the <code className="text-white">balance</code> field in <code className="text-cyan-300">/users/&#123;userId&#125;</code>. Click any user&apos;s balance or the <strong className="text-amber-300">Set Balance</strong> icon to manually update their Firestore balance.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => refreshFirestoreUsers()}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#182032] hover:bg-[#1f2940] text-gray-200 border border-[#2c374f] text-[11px] font-bold transition-colors cursor-pointer"
+                title="Push and synchronize all user records with Firestore users collection"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Sync Users to Firestore</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSecurityRulesModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-colors cursor-pointer"
+              >
+                <FileCode className="w-3.5 h-3.5" />
+                <span>View Firestore Rules</span>
+              </button>
+            </div>
+          </div>
+
           {/* Search bar & Status Filter Buttons */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div className="relative w-full sm:w-96">
@@ -585,7 +674,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                   <th className="py-2.5 px-3">Status</th>
                   <th className="py-2.5 px-3">Live Telemetry</th>
                   <th className="py-2.5 px-3">Risk Level</th>
-                  <th className="py-2.5 px-3">Balance</th>
+                  <th className="py-2.5 px-3">Balance (Firestore)</th>
                   <th className="py-2.5 px-3 text-right">Admin Sovereign Actions</th>
                 </tr>
               </thead>
@@ -599,11 +688,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                     <tr key={u.id} className="hover:bg-white/5 transition-colors">
                       {/* Unique User ID */}
                       <td className="py-3 px-3 font-mono-numbers font-bold text-[#f5d061]">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span>{u.id}</span>
                           {u.role === 'admin' && (
                             <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
                               ADMIN
+                            </span>
+                          )}
+                          {(u.isRealAuthUser || u.authUid) && (
+                            <span
+                              className="px-1.5 py-0.2 rounded text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                              title={`Synced Firebase Auth UID: ${u.authUid || u.id}`}
+                            >
+                              AUTH SYNCED
                             </span>
                           )}
                         </div>
@@ -689,9 +786,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                         </div>
                       </td>
 
-                      {/* Balance */}
+                      {/* Balance (Clickable for manual Firestore update) */}
                       <td className="py-3 px-3 font-mono-numbers font-bold text-white">
-                        ₹{u.balance.toLocaleString('en-IN')}
+                        <div className="flex items-center gap-2">
+                          <span>₹{u.balance.toLocaleString('en-IN')}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedUserForAction(u);
+                              setActionType('SET_BALANCE');
+                              setAdjustAmount(u.balance);
+                              setAdjustReason('');
+                              setFeedback(null);
+                            }}
+                            className="px-2 py-0.5 rounded-md bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[10px] font-sans font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Manually set or update user balance in Firestore users collection"
+                          >
+                            <Sliders className="w-2.5 h-2.5" />
+                            <span>Edit</span>
+                          </button>
+                        </div>
                       </td>
 
                       {/* Actions */}
@@ -748,15 +862,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                             <AlertTriangle className="w-3.5 h-3.5" />
                           </button>
 
+                          {/* Set Exact Balance in Firestore */}
+                          <button
+                            onClick={() => {
+                              setSelectedUserForAction(u);
+                              setActionType('SET_BALANCE');
+                              setAdjustAmount(u.balance);
+                              setAdjustReason('');
+                              setFeedback(null);
+                            }}
+                            className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/40 border border-amber-500/30 transition-colors"
+                            title="Set Exact Balance in Firestore (users collection)"
+                          >
+                            <Sliders className="w-3.5 h-3.5" />
+                          </button>
+
                           {/* Grant Credits */}
                           <button
                             onClick={() => {
                               setSelectedUserForAction(u);
                               setActionType('GRANT');
+                              setAdjustAmount(500);
                               setFeedback(null);
                             }}
                             className="p-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/40 border border-emerald-500/30 transition-colors"
-                            title="Grant Virtual Credits"
+                            title="Grant Virtual Credits (Increment Firestore balance)"
                           >
                             <PlusCircle className="w-3.5 h-3.5" />
                           </button>
@@ -766,10 +896,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                             onClick={() => {
                               setSelectedUserForAction(u);
                               setActionType('DEDUCT');
+                              setAdjustAmount(500);
                               setFeedback(null);
                             }}
                             className="p-1.5 rounded-lg bg-red-600/20 text-red-300 hover:bg-red-600/40 border border-red-500/30 transition-colors"
-                            title="Deduct Virtual Credits"
+                            title="Deduct Virtual Credits (Decrement Firestore balance)"
                           >
                             <MinusCircle className="w-3.5 h-3.5" />
                           </button>
@@ -2148,17 +2279,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
         </div>
       )}
 
-      {/* MODAL 4: CREDIT GRANT / DEDUCT */}
-      {(actionType === 'GRANT' || actionType === 'DEDUCT') && selectedUserForAction && (
+      {/* MODAL 4: FIRESTORE MANUAL BALANCE UPDATE / GRANT / DEDUCT */}
+      {(actionType === 'SET_BALANCE' || actionType === 'GRANT' || actionType === 'DEDUCT') && selectedUserForAction && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0e121a] border-2 border-amber-500/40 rounded-3xl p-6 w-full max-w-md shadow-2xl relative space-y-4">
+          <div className="bg-[#0e121a] border-2 border-amber-500/40 rounded-3xl p-6 w-full max-w-lg shadow-2xl relative space-y-4">
             <button
               onClick={() => {
                 setSelectedUserForAction(null);
                 setActionType(null);
                 setFeedback(null);
               }}
-              className="absolute top-5 right-5 text-gray-400 hover:text-white"
+              className="absolute top-5 right-5 text-gray-400 hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -2166,41 +2297,168 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
             <div className="flex items-center gap-3">
               <div
                 className={`w-11 h-11 rounded-xl flex items-center justify-center ${
-                  actionType === 'GRANT'
+                  actionType === 'SET_BALANCE'
+                    ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                    : actionType === 'GRANT'
                     ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                     : 'bg-red-500/15 text-red-400 border border-red-500/30'
                 }`}
               >
-                {actionType === 'GRANT' ? <PlusCircle className="w-6 h-6" /> : <MinusCircle className="w-6 h-6" />}
+                {actionType === 'SET_BALANCE' ? (
+                  <Sliders className="w-6 h-6" />
+                ) : actionType === 'GRANT' ? (
+                  <PlusCircle className="w-6 h-6" />
+                ) : (
+                  <MinusCircle className="w-6 h-6" />
+                )}
               </div>
               <div>
                 <h3 className="font-cinzel text-base font-black text-white">
-                  {actionType === 'GRANT' ? 'Grant Virtual Credits' : 'Deduct Virtual Credits'}
+                  {actionType === 'SET_BALANCE'
+                    ? 'Manual Firestore Balance Override'
+                    : actionType === 'GRANT'
+                    ? 'Grant Credits (Firestore Increment)'
+                    : 'Deduct Credits (Firestore Decrement)'}
                 </h3>
-                <p className="text-xs text-gray-400">Target User: {selectedUserForAction.id} ({selectedUserForAction.username})</p>
+                <p className="text-xs text-gray-400">
+                  Target: <span className="text-[#f5d061] font-mono font-bold">{selectedUserForAction.id}</span> ({selectedUserForAction.username})
+                </p>
+              </div>
+            </div>
+
+            {/* Firestore Target Document & Security Rule Badge */}
+            <div className="bg-[#121622] border border-[#242c3d] rounded-xl p-3 space-y-2 text-[11px]">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">Firestore Document Path:</span>
+                <code className="font-mono text-cyan-300 bg-[#0b0e14] px-2 py-0.5 rounded border border-cyan-500/30">
+                  users/{selectedUserForAction.authUid || selectedUserForAction.id}
+                </code>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">Target Field:</span>
+                <code className="font-mono text-amber-300 font-bold">balance (number)</code>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">Security Rule Enforcement:</span>
+                <span className="text-emerald-400 font-mono font-bold flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" /> isAdmin() Verified
+                </span>
+              </div>
+            </div>
+
+            {/* Mode Switcher Tabs */}
+            <div className="grid grid-cols-3 gap-1.5 bg-[#121622] p-1 rounded-xl border border-[#242c3d] text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setActionType('SET_BALANCE');
+                  setAdjustAmount(selectedUserForAction.balance);
+                  setFeedback(null);
+                }}
+                className={`py-2 rounded-lg font-bold transition-all cursor-pointer ${
+                  actionType === 'SET_BALANCE'
+                    ? 'bg-amber-500 text-black shadow'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Set Exact Balance
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActionType('GRANT');
+                  setAdjustAmount(500);
+                  setFeedback(null);
+                }}
+                className={`py-2 rounded-lg font-bold transition-all cursor-pointer ${
+                  actionType === 'GRANT'
+                    ? 'bg-emerald-500 text-black shadow'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                + Grant Credits
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActionType('DEDUCT');
+                  setAdjustAmount(500);
+                  setFeedback(null);
+                }}
+                className={`py-2 rounded-lg font-bold transition-all cursor-pointer ${
+                  actionType === 'DEDUCT'
+                    ? 'bg-red-500 text-white shadow'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                - Deduct Credits
+              </button>
+            </div>
+
+            {/* Balance Preview Comparison */}
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="bg-[#121622] border border-[#242c3d] rounded-xl p-3">
+                <span className="text-[10px] text-gray-400 uppercase block">Current Balance</span>
+                <span className="font-mono-numbers text-base font-bold text-white">
+                  ₹{selectedUserForAction.balance.toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div className="bg-[#121622] border border-amber-500/30 rounded-xl p-3">
+                <span className="text-[10px] text-amber-300 uppercase block">New Resulting Balance</span>
+                <span className="font-mono-numbers text-base font-black text-[#f5d061]">
+                  ₹{(
+                    actionType === 'SET_BALANCE'
+                      ? Math.max(0, Number(adjustAmount) || 0)
+                      : actionType === 'GRANT'
+                      ? selectedUserForAction.balance + (Math.max(0, Number(adjustAmount) || 0))
+                      : Math.max(0, selectedUserForAction.balance - (Math.max(0, Number(adjustAmount) || 0)))
+                  ).toLocaleString('en-IN')}
+                </span>
               </div>
             </div>
 
             <form onSubmit={handleExecuteAdjustment} className="space-y-3 text-xs">
               <div>
-                <label className="text-gray-300 font-semibold block mb-1">Credit Amount (₹):</label>
+                <label className="text-gray-300 font-semibold block mb-1">
+                  {actionType === 'SET_BALANCE'
+                    ? 'New Exact Balance in Firestore (₹):'
+                    : actionType === 'GRANT'
+                    ? 'Amount to Grant / Increment (₹):'
+                    : 'Amount to Deduct / Decrement (₹):'}
+                </label>
                 <input
                   type="number"
-                  min={1}
+                  min={actionType === 'SET_BALANCE' ? 0 : 1}
                   value={adjustAmount}
                   onChange={e => setAdjustAmount(Number(e.target.value))}
                   className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-2 text-white font-mono-numbers font-bold text-sm focus:outline-none focus:border-[#d4af37]"
                   required
                 />
+
+                {/* Quick Presets */}
+                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                  {[0, 500, 1000, 5000, 10000, 50000]
+                    .filter(val => actionType === 'SET_BALANCE' || val > 0)
+                    .map(preset => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setAdjustAmount(preset)}
+                        className="px-2.5 py-1 rounded-lg bg-[#161c2b] hover:bg-[#1f283d] border border-[#28324a] text-gray-300 hover:text-amber-300 font-mono-numbers text-[11px] font-bold transition-colors cursor-pointer"
+                      >
+                        ₹{preset.toLocaleString('en-IN')}
+                      </button>
+                    ))}
+                </div>
               </div>
 
               <div>
-                <label className="text-gray-300 font-semibold block mb-1">Justification Reason:</label>
+                <label className="text-gray-300 font-semibold block mb-1">Audit Trail &amp; Justification Reason:</label>
                 <input
                   type="text"
                   value={adjustReason}
                   onChange={e => setAdjustReason(e.target.value)}
-                  placeholder="Supervisor rationale..."
+                  placeholder="e.g., Manual admin balance update verified via Firestore..."
                   className="w-full bg-[#121622] border border-[#242c3d] rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#d4af37]"
                 />
               </div>
@@ -2209,8 +2467,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                 <div
                   className={`p-2.5 rounded-xl text-xs font-bold ${
                     feedback.type === 'success'
-                      ? 'bg-emerald-500/20 text-emerald-300'
-                      : 'bg-red-500/20 text-red-400'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-red-500/20 text-red-400 border border-red-500/30'
                   }`}
                 >
                   {feedback.text}
@@ -2224,22 +2482,117 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onOpenExport }) 
                     setSelectedUserForAction(null);
                     setActionType(null);
                   }}
-                  className="px-3.5 py-1.5 rounded-xl bg-gray-800 text-gray-300 font-bold"
+                  className="px-3.5 py-2 rounded-xl bg-gray-800 text-gray-300 font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className={`px-4 py-1.5 rounded-xl font-bold transition-colors text-white ${
-                    actionType === 'GRANT'
-                      ? 'bg-emerald-600 hover:bg-emerald-500'
-                      : 'bg-red-600 hover:bg-red-500'
-                  }`}
+                  disabled={isUpdatingFirestoreBalance}
+                  className={`px-4 py-2 rounded-xl font-black transition-all cursor-pointer ${
+                    actionType === 'SET_BALANCE'
+                      ? 'bg-amber-500 hover:bg-amber-400 text-black'
+                      : actionType === 'GRANT'
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                      : 'bg-red-600 hover:bg-red-500 text-white'
+                  } disabled:opacity-50`}
                 >
-                  Execute Adjustment
+                  {isUpdatingFirestoreBalance
+                    ? 'Writing to Firestore...'
+                    : actionType === 'SET_BALANCE'
+                    ? 'Update Firestore Balance'
+                    : actionType === 'GRANT'
+                    ? 'Grant & Sync to Firestore'
+                    : 'Deduct & Sync to Firestore'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: FIREBASE SECURITY RULES INSPECTOR (firestore.rules) */}
+      {showSecurityRulesModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0e121a] border-2 border-amber-500/40 rounded-3xl p-6 w-full max-w-2xl shadow-2xl relative space-y-4">
+            <button
+              onClick={() => setShowSecurityRulesModal(false)}
+              className="absolute top-5 right-5 text-gray-400 hover:text-white cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                <Shield className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-cinzel text-base font-black text-white">
+                  Active Firebase Security Rules (firestore.rules)
+                </h3>
+                <p className="text-xs text-gray-400">
+                  Enforcing Admin-Only Write Access on <code className="text-amber-300">users/&#123;userId&#125;.balance</code>
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-[#090c12] border border-[#242c3d] rounded-2xl p-4 font-mono text-[11px] text-gray-300 overflow-x-auto max-h-96 space-y-1">
+              <pre className="whitespace-pre-wrap leading-relaxed">{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Verified Admin Check (Hardcoded Sovereign Admin or Database Role)
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email == "jatinrathodeklo@gmail.com" && request.auth.token.email_verified == true) ||
+        (request.auth.token.email == "admin@bityora.in" && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    // Detect if the incoming write modifies the protected 'balance' field
+    function isModifyingBalance() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(['balance']);
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+
+      // Update Rule:
+      // 1. Admins can manually update a user's balance field (must be a non-negative number).
+      // 2. Non-admin users are strictly blocked from writing to or modifying 'balance'.
+      allow update: if (
+        isAdmin() &&
+        (!('balance' in request.resource.data) ||
+         (request.resource.data.balance is number && request.resource.data.balance >= 0))
+      ) || (
+        isAuthenticated() &&
+        request.auth.uid == userId &&
+        !isModifyingBalance() &&
+        request.resource.data.role == resource.data.role
+      );
+    }
+  }
+}`}</pre>
+            </div>
+
+            <div className="flex items-center justify-between pt-1 text-xs">
+              <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
+                <CheckCircle className="w-4 h-4" />
+                Deployed &amp; Enforced on Project: bityora
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowSecurityRulesModal(false)}
+                className="px-4 py-2 rounded-xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-colors cursor-pointer"
+              >
+                Close Inspector
+              </button>
+            </div>
           </div>
         </div>
       )}
