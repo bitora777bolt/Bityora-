@@ -6,7 +6,7 @@ import { defineConfig } from 'vite';
 export default defineConfig(() => {
   return {
     base: '/Bityora-/'
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './'),
